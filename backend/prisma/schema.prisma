@@ -1,0 +1,535 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                   String                    @id @default(uuid())
+  email                String?                   @unique
+  phoneNumber          String?                   @unique
+  passwordHash         String
+  twoFactorSecret      String?
+  isTwoFactorEnabled   Boolean                   @default(false)
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  profile              UserProfile?
+  workspaceUsers       WorkspaceUser[]
+  sessions             LoginSession[]
+  passwordResetTokens  PasswordResetToken[]
+  devices              Device[]
+  conversations        ConversationParticipant[]
+  messages             Message[]
+  messageReads         MessageRead[]
+  messageDeliveries    MessageDelivery[]
+  reactions            MessageReaction[]
+  edits                MessageEdit[]
+  deletions            MessageDeletion[]
+  files                File[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  blockedUsers         BlockedUser[]             @relation("Blocker")
+  blockedBy            BlockedUser[]             @relation("Blocked")
+  starredMessages      StarredMessage[]
+  pinnedMessages       PinnedMessage[]
+  archivedChats        ArchivedChat[]
+  mutedChats           MutedChat[]
+  tasksCreated         Task[]                    @relation("TaskCreator")
+  tasksAssigned        TaskAssignee[]
+  pollVotes            PollVote[]
+  groupMembers         GroupMember[]
+  groupCreated         Group[]                   @relation("GroupCreator")
+  eventAttendees       EventAttendee[]
+  announcementPublishers AnnouncementPublisher[]
+}
+
+model UserProfile {
+  userId             String    @id
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName        String
+  avatarUrl          String?
+  aboutText          String    @default("Hey there! I am using Veloce.")
+  statusAvailability String?   // ACTIVE, AWAY, DND, OUT_OF_OFFICE; null = offline (never connected / disconnected)
+  lastSeen           DateTime?
+  privacyLastSeen    String    @default("EVERYONE") // EVERYONE, WORKSPACE, NOBODY
+  privacyProfilePhoto String   @default("EVERYONE")
+  privacyReadReceipts Boolean   @default(true)
+  updatedAt          DateTime  @updatedAt
+}
+
+model Workspace {
+  id                 String          @id @default(uuid())
+  name               String
+  subdomain          String          @unique
+  logoUrl            String?
+  customPrimaryColor String          @default("#5850ec")
+  storageLimitBytes  BigInt          @default(10737418240) // 10 GB
+  isActive           Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  users              WorkspaceUser[]
+  conversations      Conversation[]
+  files              File[]
+  auditLogs          AuditLog[]
+  calendarEvents     CalendarEvent[]
+  appIntegrations    AppIntegration[]
+  announcementPublishers AnnouncementPublisher[]
+}
+
+model WorkspaceUser {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String    @default("MEMBER") // OWNER, ADMIN, MANAGER, MEMBER, GUEST
+  department  String?
+  joinedAt    DateTime  @default(now())
+  isActive    Boolean   @default(true)
+  canPostAnnouncements Boolean @default(false)
+  allowedNavKeys Json?
+
+  @@unique([workspaceId, userId])
+}
+
+model Conversation {
+  id                       String                    @id @default(uuid())
+  workspaceId              String
+  workspace                Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  type                     String                    @default("DIRECT") // DIRECT, GROUP, BROADCAST
+  encryptionKeyEncrypted   String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  participants             ConversationParticipant[]
+  messages                 Message[]
+  group                    Group?
+  tasks                    Task[]
+  archivedBy               ArchivedChat[]
+  mutedBy                  MutedChat[]
+  pinnedMessages           PinnedMessage[]
+  announcementPublishers AnnouncementPublisher[]
+}
+
+model AnnouncementPublisher {
+  id               String       @id @default(uuid())
+  workspaceId    String
+  conversationId String
+  userId         String
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt       DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+}
+
+model Group {
+  conversationId   String        @id
+  conversation     Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  name             String
+  description      String?
+  avatarUrl        String?
+  inviteToken      String?       @unique
+  requiresApproval Boolean       @default(false)
+  teamName         String?
+  channelSlug      String?
+  spaceType        String        @default("TEAM_CHANNEL") // TEAM_CHANNEL, ORG_FEED, ANNOUNCEMENT, LEADERSHIP
+  isReadOnly       Boolean       @default(false)
+  createdBy        String?
+  creator          User?         @relation("GroupCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt        DateTime      @default(now())
+  members          GroupMember[]
+}
+
+model GroupMember {
+  id             String   @id @default(uuid())
+  conversationId String
+  group          Group    @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String   @default("MEMBER") // OWNER, ADMIN, MEMBER, GUEST
+  isMuted        Boolean  @default(false)
+  joinedAt       DateTime @default(now())
+
+  @@unique([conversationId, userId])
+}
+
+
+model Message {
+  id                 String             @id @default(uuid())
+  conversationId     String
+  conversation       Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId           String
+  sender             User               @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyToMessageId   String?
+  replyTo            Message?           @relation("ReplyTo", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies            Message[]          @relation("ReplyTo")
+  content            String? // Encrypted
+  messageType        String             @default("TEXT") // TEXT, IMAGE, FILE, TASK, POLL, BROADCAST
+  priority           String             @default("NORMAL") // NORMAL, IMPORTANT, URGENT
+  isEdited           Boolean            @default(false)
+  isDeletedGlobally  Boolean            @default(false)
+  forwardedCount     Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  reads              MessageRead[]
+  deliveries         MessageDelivery[]
+  reactions          MessageReaction[]
+  attachments        MessageAttachment[]
+  edits              MessageEdit[]
+  deletions          MessageDeletion[]
+  pinnedMessages     PinnedMessage[]
+  tasks              Task[]
+  polls              Poll?
+  starredMessages    StarredMessage[]
+}
+
+model MessageRead {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now())
+
+  @@unique([messageId, userId])
+}
+
+model MessageDelivery {
+  id          String   @id @default(uuid())
+  messageId   String
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveredAt DateTime @default(now())
+
+  @@unique([messageId, userId])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+}
+
+model MessageAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileId    String
+  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  caption   String?
+  createdAt DateTime @default(now())
+}
+
+model MessageEdit {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  oldContent String
+  editedAt  DateTime @default(now())
+  editedBy  String
+  editor    User     @relation(fields: [editedBy], references: [id], onDelete: Cascade)
+}
+
+model MessageDeletion {
+  id              String   @id @default(uuid())
+  messageId       String
+  message         Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  deletedBy       String
+  deleter         User     @relation(fields: [deletedBy], references: [id], onDelete: Cascade)
+  originalContent String?
+  deletedAt       DateTime @default(now())
+}
+
+model File {
+  id                 String            @id @default(uuid())
+  workspaceId        String
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploadedBy         String
+  uploader           User              @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  filename           String
+  mimeType           String
+  fileSizeBytes      BigInt
+  storageProvider    String            @default("S3") // S3, DIGITALOCE
+  storageKey         String            @unique
+  isMalwareScanned   Boolean           @default(false)
+  malwareScanResult  String            @default("PENDING") // PENDING, CLEAN, INFECTED
+  expirationDate     DateTime?
+  isDeleted          Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  messageAttachments MessageAttachment[]
+}
+
+
+model Setting {
+  id         String   @id @default(uuid())
+  tenantType String // GLOBAL, WORKSPACE, USER
+  tenantId   String?
+  key        String
+  value      String
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantType, tenantId, key])
+}
+
+model Device {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceType String // IOS, ANDROID, WEB
+  pushToken  String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model LoginSession {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash  String   @unique
+  ipAddress         String
+  userAgent         String?
+  isRevoked         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  lastActiveAt      DateTime @default(now())
+}
+
+/// Persisted second-factor challenge (replaces in-memory OTP cache).
+/// Single-use, short-lived token backing the forgot-password flow.
+/// Only the hash is stored, so a database read cannot be replayed as a reset.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model OtpChallenge {
+  id        String   @id @default(uuid())
+  verifyKey String   @unique
+  otpHash   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id             String    @id @default(uuid())
+  workspaceId    String?
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  performedBy    String?
+  actor          User?     @relation(fields: [performedBy], references: [id], onDelete: SetNull)
+  action         String // USER_MUTED, FILE_DELETED, SETTING_CHANGED
+  targetResource String // Table name / resource type
+  targetId       String?
+  payload        String? // JSON string
+  ipAddress      String?
+  createdAt      DateTime  @default(now())
+}
+
+model Notification {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  body             String
+  isRead           Boolean  @default(false)
+  notificationType String // MENTION, TASK_ASSIGNED, SYSTEM_ALERT
+  resourceId       String?
+  createdAt        DateTime @default(now())
+}
+
+model BlockedUser {
+  id            String   @id @default(uuid())
+  userId        String
+  blocker       User     @relation("Blocker", fields: [userId], references: [id], onDelete: Cascade)
+  blockedUserId String
+  blocked       User     @relation("Blocked", fields: [blockedUserId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, blockedUserId])
+}
+
+model StarredMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+}
+
+model PinnedMessage {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String
+  message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  pinnedBy       String
+  user           User         @relation(fields: [pinnedBy], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, messageId])
+}
+
+model ArchivedChat {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, conversationId])
+}
+
+model MutedChat {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  muteUntil      DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, conversationId])
+}
+
+
+model Task {
+  id             String         @id @default(uuid())
+  workspaceId    String
+  conversationId String
+  conversation   Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String?
+  message        Message?       @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  title          String
+  description    String?
+  priority       String         @default("NORMAL") // NORMAL, IMPORTANT, URGENT
+  status         String         @default("ACTIVE") // ACTIVE, IN_PROGRESS, COMPLETED, CANCELLED
+  dueDate        DateTime?
+  createdBy      String?
+  creator        User?          @relation("TaskCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  assignees      TaskAssignee[]
+}
+
+model TaskAssignee {
+  id         String   @id @default(uuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+  @@map("task_assignees")
+}
+
+
+model Poll {
+  id             String       @id @default(uuid())
+  messageId      String       @unique
+  message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  question       String
+  isMultiSelect  Boolean      @default(false)
+  expiresAt      DateTime?
+  createdAt      DateTime     @default(now())
+  options        PollOption[]
+  votes          PollVote[]
+}
+
+model PollOption {
+  id          String     @id @default(uuid())
+  pollId      String
+  poll        Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  optionText  String
+  displayOrder Int       @default(0)
+  votes       PollVote[]
+}
+
+model PollVote {
+  id        String     @id @default(uuid())
+  pollId    String
+  poll      Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  optionId  String
+  option    PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votedAt   DateTime   @default(now())
+
+  @@unique([pollId, userId, optionId])
+}
+
+model CalendarEvent {
+  id           String          @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  startsAt     DateTime
+  endsAt       DateTime
+  teamName     String?
+  createdBy    String?
+  meetingLink  String?
+  reminderSent Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  attendees    EventAttendee[]
+}
+
+model AppIntegration {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  category    String
+  description String
+  isConnected Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, name])
+}
+
+model EventAttendee {
+  id        String        @id @default(uuid())
+  eventId   String
+  event     CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@unique([eventId, userId])
+  @@map("event_attendees")
+}

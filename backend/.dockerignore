@@ -1,0 +1,10 @@
+# Never bake local SQLite data into the image: the runtime DB lives on the
+# /var/lib/teamtime volume and a baked copy silently shadows it.
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-wal
+prisma/*.db-shm
+
+.env
+.env.*
+!.env.example
