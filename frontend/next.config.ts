@@ -9,6 +9,17 @@ const nextConfig: NextConfig = electronBuild
       images: { unoptimized: true },
     }
   : {
+      allowedDevOrigins: [
+        "192.168.1.104:3000",
+        "192.168.1.104",
+        "localhost:3000",
+        "127.0.0.1:3000",
+        "192.168.*.*",
+        "10.*.*.*",
+        "172.*.*.*",
+        "*.local",
+        "*.lan",
+      ],
       async rewrites() {
         return [
           {

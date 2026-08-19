@@ -373,23 +373,33 @@ body {
   border-color: rgba(255, 255, 255, 0.12) !important;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
 }
-/* Status indicator dots - explicit background colors for Tailwind v4 */
+/* Status indicator dots - explicit background colors & subtle glow */
 .status-dot-emerald {
+  display: inline-block !important;
   background-color: #10b981 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
 }
 
 .status-dot-amber {
-  background-color: #fbbf24 !important;
+  display: inline-block !important;
+  background-color: #f59e0b !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2) !important;
 }
 
 .status-dot-red {
+  display: inline-block !important;
   background-color: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
 }
 
 .status-dot-purple {
+  display: inline-block !important;
   background-color: #a855f7 !important;
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2) !important;
 }
 
 .status-dot-slate {
-  background-color: #cbd5e1 !important;
+  display: inline-block !important;
+  background-color: #94a3b8 !important;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.2) !important;
 }

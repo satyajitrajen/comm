@@ -53,15 +53,31 @@ export function IncomingCallScreen({
     return () => document.removeEventListener('keydown', handler);
   }, [onDecline]);
 
-  // Audio ringtone using custom MP3 tune
+  // Audio ringtone with autoplay policy fallback & interaction unlock
   useEffect(() => {
     const audio = new Audio('/ringtone.mp3');
     audio.loop = true;
-    audio.play().catch((err) => {
-      console.warn('Custom ringtone play warning:', err);
-    });
+
+    const tryPlay = () => {
+      audio.play().catch(() => {
+        // Autoplay policy prevented playback until user interaction
+      });
+    };
+
+    tryPlay();
+
+    const handleUnlock = () => {
+      if (audio.paused) {
+        void audio.play().catch(() => {});
+      }
+    };
+
+    window.addEventListener('pointerdown', handleUnlock, { once: true });
+    window.addEventListener('keydown', handleUnlock, { once: true });
 
     return () => {
+      window.removeEventListener('pointerdown', handleUnlock);
+      window.removeEventListener('keydown', handleUnlock);
       audio.pause();
       audio.currentTime = 0;
     };

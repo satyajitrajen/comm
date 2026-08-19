@@ -30,14 +30,23 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+# Free ports 5000 and 3000 if lingering
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k 5000/tcp 2>/dev/null || true
+  fuser -k 3000/tcp 2>/dev/null || true
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -ti:5000 | xargs kill -9 2>/dev/null || true
+  lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+fi
+
 echo "Starting Comm ($MODE mode)..."
 echo "  Backend:  $BACKEND_DIR"
 echo "  Frontend: $FRONTEND_DIR"
 echo ""
 
 if [[ "$MODE" == "dev" ]]; then
-  echo "Backend  -> http://localhost:5000 (npm run start:dev)"
-  echo "Frontend -> http://localhost:3000 (npm run dev)"
+  echo "Backend  -> http://localhost:5000 and network http://0.0.0.0:5000 (npm run start:dev)"
+  echo "Frontend -> http://localhost:3000 and network http://0.0.0.0:3000 (npm run dev)"
   echo ""
   (cd "$BACKEND_DIR" && npm run start:dev) &
   PIDS+=("$!")

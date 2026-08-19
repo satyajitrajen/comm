@@ -75,8 +75,31 @@ export const filesAPI = {
 
 export const calendarAPI = {
   getEvents: (params?: { start?: string; end?: string }) => api.get('/api/v1/calendar', { params }).then((res) => res.data),
-  createEvent: (body: { title: string; description?: string; startsAt: string; endsAt: string }) =>
-    api.post('/api/v1/calendar', body).then((res) => res.data),
+  createEvent: (body: {
+    title: string;
+    description?: string;
+    startsAt: string;
+    endsAt: string;
+    teamName?: string;
+    meetingLink?: string;
+    attendeeIds?: string[];
+  }) => api.post('/api/v1/calendar', body).then((res) => res.data),
+  updateEvent: (
+    id: string,
+    body: {
+      title?: string;
+      description?: string;
+      startsAt?: string;
+      endsAt?: string;
+      teamName?: string;
+      meetingLink?: string;
+      attendeeIds?: string[];
+      notifyAttendees?: boolean;
+    },
+  ) => api.patch(`/api/v1/calendar/${id}`, body).then((res) => res.data),
+  deleteEvent: (id: string) => api.delete(`/api/v1/calendar/${id}`).then((res) => res.data),
+  sendInvites: (id: string, attendeeIds?: string[]) =>
+    api.post(`/api/v1/calendar/${id}/invites`, { attendeeIds }).then((res) => res.data),
 };
 
 export const appsAPI = {

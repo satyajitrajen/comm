@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.setupSystemTray = setupSystemTray;
 const electron_1 = require("electron");
+const notification_1 = require("./notification");
 let tray = null;
 function setupSystemTray(mainWindow) {
     // Create a 16x16 icon programmatically or load blank native image if asset missing
@@ -22,9 +23,9 @@ function setupSystemTray(mainWindow) {
         {
             label: 'Status',
             submenu: [
-                { label: '🟢 Online', type: 'radio', checked: true, click: () => setStatus('online') },
-                { label: '🟡 Away', type: 'radio', click: () => setStatus('away') },
-                { label: '🔴 Do Not Disturb', type: 'radio', click: () => setStatus('dnd') },
+                { label: '🟢 Online', type: 'radio', checked: true, click: () => setTrayStatus('online') },
+                { label: '🟡 Away', type: 'radio', click: () => setTrayStatus('away') },
+                { label: '🔴 Do Not Disturb', type: 'radio', click: () => setTrayStatus('dnd') },
             ],
         },
         { type: 'separator' },
@@ -47,6 +48,12 @@ function setupSystemTray(mainWindow) {
     });
     return tray;
 }
-function setStatus(status) {
+function setTrayStatus(status) {
     console.log(`[Tray] User set status to: ${status}`);
+    (0, notification_1.setDndEnabled)(status === 'dnd');
+    // Notify renderer so it can suppress browser notifications too
+    const windows = electron_1.BrowserWindow.getAllWindows();
+    for (const win of windows) {
+        win.webContents.send('tray:statusChanged', status);
+    }
 }

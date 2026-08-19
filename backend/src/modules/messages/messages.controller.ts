@@ -18,7 +18,7 @@ import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 export class MessagesController {
   constructor(private messagesService: MessagesService) {}
 
-  // Declared before any ':id' route so 'search' is not captured as an id.
+  // Declared before any ':id' route so 'search' and 'call-history' are not captured as an id.
   @Get('search')
   async searchMessages(
     @CurrentUserId() userId: string,
@@ -30,6 +30,21 @@ export class MessagesController {
     const parsedLimit = Number(limit);
     return await this.messagesService.searchMessages(userId, {
       query: q ?? '',
+      conversationId,
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+      before,
+    });
+  }
+
+  @Get('call-history')
+  async getCallHistory(
+    @CurrentUserId() userId: string,
+    @Query('conversationId') conversationId?: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+  ) {
+    const parsedLimit = Number(limit);
+    return await this.messagesService.getCallHistory(userId, {
       conversationId,
       limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
       before,

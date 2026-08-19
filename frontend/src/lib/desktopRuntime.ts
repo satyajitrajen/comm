@@ -2,6 +2,26 @@
  * Runtime helpers when the Next.js app is embedded in the Electron desktop shell.
  */
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
+declare global {
+  interface Window {
+    electronAPI?: {
+      minimizeWindow: () => void;
+      maximizeWindow: () => void;
+      closeWindow: () => void;
+      isMaximized: () => Promise<boolean>;
+      getConfig: () => Promise<{ apiUrl?: string }>;
+      sendNotification: (title: string, options?: { body?: string; tag?: string }) => void;
+      setTrayStatus: (status: 'online' | 'away' | 'dnd') => void;
+      onWindowMaximizedState: (callback: (isMaximized: boolean) => void) => void;
+      onForceEndCall: (callback: () => void) => void;
+      onTrayStatusChanged: (callback: (status: string) => void) => void;
+    };
+    __commInCall?: boolean;
+  }
+}
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
 let cachedApiUrl: string | null | undefined;
 
 export function isElectronDesktop(): boolean {
@@ -24,30 +44,73 @@ export async function ensureDesktopConfig(): Promise<void> {
   }
 }
 
+function adjustLocalhostForRemoteBrowser(urlStr: string): string {
+  if (typeof window === 'undefined') return urlStr;
+  try {
+    const parsed = new URL(urlStr);
+    if (
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+      window.location.hostname &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1'
+    ) {
+      parsed.hostname = window.location.hostname;
+      return parsed.origin;
+    }
+  } catch {
+    // ignore parse error and return original
+  }
+  return urlStr;
+}
+
 /**
  * Resolve HTTP API / Socket.IO base URL.
  * Prefer Electron-injected DESKTOP_API_URL, then Next public env.
+ * Dynamically adjusts localhost to current window hostname if accessed from a network device.
  */
 export function resolveServiceBaseUrl(): string {
   const fromDesktop = getDesktopApiUrl();
   if (fromDesktop) return fromDesktop;
-  return (
-    process.env.NEXT_PUBLIC_SOCKET_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    ''
-  );
+
+  if (process.env.NEXT_PUBLIC_SOCKET_URL) {
+    return adjustLocalhostForRemoteBrowser(process.env.NEXT_PUBLIC_SOCKET_URL);
+  }
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return adjustLocalhostForRemoteBrowser(process.env.NEXT_PUBLIC_API_URL);
+  }
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    return `${protocol}//${window.location.hostname}:5000`;
+  }
+
+  return '';
 }
 
 export function resolveApiBaseUrl(): string {
   const fromDesktop = getDesktopApiUrl();
   if (fromDesktop) return fromDesktop;
-  return process.env.NEXT_PUBLIC_API_URL || '';
+
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return adjustLocalhostForRemoteBrowser(process.env.NEXT_PUBLIC_API_URL);
+  }
+
+  return '';
 }
 
 export function sendDesktopNotification(
   title: string,
-  options?: { body?: string },
+  options?: { body?: string; tag?: string },
 ): void {
   if (!isElectronDesktop()) return;
   window.electronAPI?.sendNotification(title, options);
+}
+
+export function onDesktopForceEndCall(callback: () => void): () => void {
+  if (!isElectronDesktop()) return () => {};
+  window.electronAPI?.onForceEndCall(callback);
+  return () => {
+    // ipcRenderer listeners are automatically cleaned up by contextIsolation;
+    // no manual off needed for one-way channels in this preload design.
+  };
 }

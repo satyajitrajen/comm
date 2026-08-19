@@ -42,6 +42,7 @@ type CallSignalingActions = {
     conversationId: string,
     roomName: string,
     conversationName: string,
+    onJoined?: (actualRoomName: string, actualConversationId: string) => void,
   ) => void;
 };
 
@@ -50,6 +51,7 @@ type CallStore = {
   outgoingCall: OutgoingCall | null;
   callNotice: string | null;
   signaling: CallSignalingActions | null;
+  outgoingCallTimer: ReturnType<typeof setTimeout> | null;
   registerSignaling: (actions: CallSignalingActions) => void;
   startCall: (call: Omit<ActiveCall, 'view' | 'pipPosition'> & { view?: CallView }) => void;
   startOutgoingCall: (
@@ -79,6 +81,7 @@ type CallStore = {
   inviteToCall: CallSignalingActions['inviteToCall'];
   declineCall: CallSignalingActions['declineCall'];
   signalEndCall: () => void;
+  updateConversationId: (conversationId: string, conversationName?: string) => void;
 };
 
 export const useCallStore = create<CallStore>((set, get) => ({
@@ -86,12 +89,18 @@ export const useCallStore = create<CallStore>((set, get) => ({
   outgoingCall: null,
   callNotice: null,
   signaling: null,
+  outgoingCallTimer: null,
 
   registerSignaling: (actions) => set({ signaling: actions }),
 
-  startCall: (call) =>
+  startCall: (call) => {
+    const timer = get().outgoingCallTimer;
+    if (timer) {
+      clearTimeout(timer);
+    }
     set({
       outgoingCall: null,
+      outgoingCallTimer: null,
       activeCall: {
         conversationId: call.conversationId,
         roomName: call.roomName,
@@ -99,11 +108,24 @@ export const useCallStore = create<CallStore>((set, get) => ({
         view: call.view ?? 'fullscreen',
         pipPosition: defaultPipPosition(),
       },
-    }),
+    });
+  },
 
   startOutgoingCall: (conversationId, roomName, conversationName, callerName) => {
+    const timer = get().outgoingCallTimer;
+    if (timer) clearTimeout(timer);
+
+    const newTimer = setTimeout(() => {
+      const current = get().outgoingCall;
+      if (current && current.conversationId === conversationId) {
+        get().signaling?.cancelCall?.(conversationId, roomName, callerName);
+        set({ outgoingCall: null, outgoingCallTimer: null });
+      }
+    }, 30000);
+
     set({
       outgoingCall: { conversationId, roomName, conversationName, callerName },
+      outgoingCallTimer: newTimer,
       callNotice: null,
     });
     get().signaling?.inviteToCall(conversationId, roomName, callerName, conversationName);
@@ -111,10 +133,12 @@ export const useCallStore = create<CallStore>((set, get) => ({
 
   cancelOutgoingCall: () => {
     const call = get().outgoingCall;
+    const timer = get().outgoingCallTimer;
+    if (timer) clearTimeout(timer);
     if (call) {
       get().signaling?.cancelCall?.(call.conversationId, call.roomName, call.callerName);
     }
-    set({ outgoingCall: null });
+    set({ outgoingCall: null, outgoingCallTimer: null });
   },
 
   clearOutgoingCall: () => {
@@ -122,8 +146,18 @@ export const useCallStore = create<CallStore>((set, get) => ({
   },
 
   joinCall: (conversationId, roomName, conversationName) => {
-    get().signaling?.joinCall?.(conversationId, roomName, conversationName);
-    get().startCall({ conversationId, roomName, conversationName });
+    get().signaling?.joinCall?.(
+      conversationId,
+      roomName,
+      conversationName,
+      (actualRoomName, actualConversationId) => {
+        get().startCall({
+          conversationId: actualConversationId,
+          roomName: actualRoomName,
+          conversationName,
+        });
+      },
+    );
   },
 
   acceptIncomingCall: (conversationId, callerId, roomName, conversationName) => {
@@ -163,7 +197,11 @@ export const useCallStore = create<CallStore>((set, get) => ({
     });
   },
 
-  endCall: () => set({ activeCall: null, outgoingCall: null }),
+  endCall: () => {
+    const timer = get().outgoingCallTimer;
+    if (timer) clearTimeout(timer);
+    set({ activeCall: null, outgoingCall: null, outgoingCallTimer: null });
+  },
 
   inviteToCall: (conversationId, roomName, callerName, conversationName) => {
     get().signaling?.inviteToCall(conversationId, roomName, callerName, conversationName);
@@ -179,5 +217,17 @@ export const useCallStore = create<CallStore>((set, get) => ({
       get().signaling?.endCall(call.conversationId, call.roomName);
     }
     set({ activeCall: null, outgoingCall: null });
+  },
+
+  updateConversationId: (conversationId, conversationName) => {
+    const current = get().activeCall;
+    if (!current) return;
+    set({
+      activeCall: {
+        ...current,
+        conversationId,
+        conversationName: conversationName || current.conversationName,
+      },
+    });
   },
 }));

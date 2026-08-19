@@ -42,7 +42,7 @@ export const initializeSocket = () => {
     }
   });
 
-  socket.on('call:incoming', (data) => {
+  socket.on('call.incoming', (data) => {
     console.log('[Socket.IO] Incoming call:', data);
     useAppStore.getState().receiveIncomingCall(data.callerName, data.callType || 'video');
 
@@ -51,6 +51,26 @@ export const initializeSocket = () => {
         body: `${data.callerName} is calling you...`,
       });
     }
+  });
+
+  socket.on('call.ended', () => {
+    console.log('[Socket.IO] Call ended');
+    useAppStore.getState().endCall();
+  });
+
+  socket.on('call.left', () => {
+    console.log('[Socket.IO] Call left');
+    useAppStore.getState().endCall();
+  });
+
+  socket.on('call.cancelled', () => {
+    console.log('[Socket.IO] Call cancelled');
+    useAppStore.getState().endCall();
+  });
+
+  socket.on('call.declined', () => {
+    console.log('[Socket.IO] Call declined');
+    useAppStore.getState().endCall();
   });
 
   return socket;

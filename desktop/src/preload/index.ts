@@ -12,9 +12,11 @@ export interface IElectronAPI {
   closeWindow: () => void;
   isMaximized: () => Promise<boolean>;
   getConfig: () => Promise<DesktopConfig>;
-  sendNotification: (title: string, options?: { body?: string; icon?: string }) => void;
+  sendNotification: (title: string, options?: { body?: string; icon?: string; tag?: string }) => void;
   setTrayStatus: (status: 'online' | 'away' | 'dnd') => void;
   onWindowMaximizedState: (callback: (isMaximized: boolean) => void) => void;
+  onForceEndCall: (callback: () => void) => void;
+  onTrayStatusChanged: (callback: (status: string) => void) => void;
 }
 
 const electronAPI: IElectronAPI = {
@@ -28,6 +30,12 @@ const electronAPI: IElectronAPI = {
   setTrayStatus: (status) => ipcRenderer.send('tray:setStatus', status),
   onWindowMaximizedState: (callback) => {
     ipcRenderer.on('window:maximized-state', (_event, isMaximized) => callback(isMaximized));
+  },
+  onForceEndCall: (callback) => {
+    ipcRenderer.on('app:force-end-call', () => callback());
+  },
+  onTrayStatusChanged: (callback) => {
+    ipcRenderer.on('tray:statusChanged', (_event, status) => callback(status));
   },
 };
 

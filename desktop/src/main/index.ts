@@ -138,6 +138,42 @@ function createWindow(startUrl: string) {
     mainWindow?.webContents.send('window:maximized-state', false);
   });
 
+  // Intercept window close when an active call may be in progress.
+  let isClosingConfirmed = false;
+  mainWindow.on('close', (e) => {
+    if (isClosingConfirmed) return;
+    const contents = mainWindow?.webContents;
+    if (!contents) return;
+    e.preventDefault();
+    contents.executeJavaScript('window.__commInCall === true')
+      .then((inCall: boolean) => {
+        if (!inCall) {
+          isClosingConfirmed = true;
+          mainWindow?.close();
+          return;
+        }
+        const { dialog } = require('electron');
+        dialog.showMessageBox(mainWindow!, {
+          type: 'question',
+          buttons: ['Leave Call & Close', 'Cancel'],
+          defaultId: 1,
+          title: 'Active Call',
+          message: 'You are in an active call. Close the window?',
+        }).then((result: { response: number }) => {
+          const { response } = result;
+          if (response === 0) {
+            contents.send('app:force-end-call');
+            isClosingConfirmed = true;
+            mainWindow?.close();
+          }
+        });
+      })
+      .catch(() => {
+        isClosingConfirmed = true;
+        mainWindow?.close();
+      });
+  });
+
   setupSystemTray(mainWindow);
 }
 
@@ -165,9 +201,20 @@ ipcMain.handle('desktop:getConfig', () => ({
   apiUrl: apiUrl(),
 }));
 
-ipcMain.on('notification:send', (_event, payload: { title?: string; body?: string }) => {
-  showNativeNotification(payload?.title || 'Comm', payload?.body || '', mainWindow);
-});
+ipcMain.on(
+  'notification:send',
+  (
+    _event,
+    payload: { title?: string; body?: string; tag?: string },
+  ) => {
+    showNativeNotification(
+      payload?.title || 'Comm',
+      payload?.body || '',
+      mainWindow,
+      payload?.tag,
+    );
+  },
+);
 
 ipcMain.on('tray:setStatus', (_event, status: 'online' | 'away' | 'dnd') => {
   console.log(`[Tray] User set status to: ${status}`);

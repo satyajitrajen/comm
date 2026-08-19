@@ -57,6 +57,7 @@ function matchesType(mimeType: string, filter: string) {
 export default function FilesPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [scope, setScope] = useState<'workspace' | 'mine'>('workspace');
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
   const [view, setView] = useState<'list' | 'grid'>('list');
@@ -64,12 +65,22 @@ export default function FilesPage() {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
 
-  async function loadFiles(search = query) {
+  async function loadFiles(search = query, currentScope = scope) {
     setLoading(true);
     setError('');
     try {
-      const data = await filesAPI.getWorkspace(search || undefined);
-      setFiles(Array.isArray(data?.items) ? data.items : []);
+      if (currentScope === 'mine') {
+        const data = await filesAPI.getMine();
+        let items: FileItem[] = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+        if (search) {
+          const q = search.toLowerCase();
+          items = items.filter((f) => f.filename.toLowerCase().includes(q));
+        }
+        setFiles(items);
+      } else {
+        const data = await filesAPI.getWorkspace(search || undefined);
+        setFiles(Array.isArray(data?.items) ? data.items : []);
+      }
     } catch {
       setError('Files could not be loaded.');
       setFiles([]);
@@ -79,18 +90,18 @@ export default function FilesPage() {
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      loadFiles('');
-    }, 0);
-    return () => window.clearTimeout(timer);
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const initialScope = params?.get('scope') === 'mine' ? 'mine' : 'workspace';
+    setScope(initialScope);
+    loadFiles('', initialScope);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => loadFiles(query), 250);
+    const handle = window.setTimeout(() => loadFiles(query, scope), 250);
     return () => window.clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, scope]);
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -104,7 +115,7 @@ export default function FilesPage() {
     setError('');
     try {
       await filesAPI.upload(file);
-      await loadFiles('');
+      await loadFiles('', scope);
       setQuery('');
     } catch {
       setError('File upload failed.');
@@ -148,6 +159,24 @@ export default function FilesPage() {
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
             {displayed.length}
           </span>
+          <div className="ml-2 flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            <button
+              onClick={() => setScope('workspace')}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                scope === 'workspace' ? 'bg-white font-semibold text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Files
+            </button>
+            <button
+              onClick={() => setScope('mine')}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                scope === 'mine' ? 'bg-white font-semibold text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              My Files
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button

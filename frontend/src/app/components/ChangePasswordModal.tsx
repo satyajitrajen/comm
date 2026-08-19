@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { KeyRound, RefreshCw, Save, X } from 'lucide-react';
 import { authAPI } from '../../services/api';
 import { useChatStore } from '../../store/useChatStore';
+import { unregisterBrowserPush } from '../../lib/push';
 import PasswordInput from './PasswordInput';
 import Portal from './Portal';
 
@@ -76,6 +77,7 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
       setNewPassword('');
       setConfirmPassword('');
       setPasswordSuccess('Password updated — please sign in again.');
+      await unregisterBrowserPush();
       localStorage.removeItem('veloce_token');
       localStorage.removeItem('veloce_refresh');
       localStorage.removeItem('veloce_session');

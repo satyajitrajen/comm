@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
 import {
   PhoneCall,
   Video,
@@ -10,6 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { callsAPI, CallHistoryMessage, chatsAPI, usersAPI } from '../../../services/api';
+import { resolveServiceBaseUrl } from '../../../lib/desktopRuntime';
 import { avatarAccent, initials, timeAgo } from '../_utils';
 import { useCallStore } from '../../../store/useCallStore';
 import { callRoomName } from '../../../lib/callRoom';
@@ -129,6 +131,31 @@ export default function CallsPage() {
 
     void loadCallsData();
   }, []);
+
+  // Listen for live call events from WebSocket
+  useEffect(() => {
+    const socketUrl = resolveServiceBaseUrl();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
+    if (!token) return;
+
+    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+
+    socket.on('message.sent', (message: CallHistoryMessage) => {
+      if (
+        message?.messageType?.startsWith('SYSTEM_CALL') ||
+        message?.messageType?.startsWith('CALL')
+      ) {
+        setCallRecords((current) => {
+          if (current.some((r) => r.id === message.id)) return current;
+          return [toCallRecord(message, feedMap), ...current];
+        });
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [feedMap]);
 
   // When the page has no scrollbar yet (short first page), keep pulling pages
   // until it fills the viewport or history is exhausted.

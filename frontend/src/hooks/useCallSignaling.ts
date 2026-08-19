@@ -56,10 +56,27 @@ export function useCallSignaling(activeConversationId?: string) {
     socket.on('connect', joinIfNeeded);
 
     socket.on('call.incoming', (data: IncomingCall) => {
+      const store = useCallStore.getState();
+      // Reject new incoming calls while already in an active call,
+      // but only if it's a genuinely different call.
+      if (store.activeCall) {
+        const sameCall =
+          store.activeCall.conversationId === data.conversationId ||
+          store.activeCall.roomName === data.roomName;
+        if (!sameCall) {
+          socket.emit('call.decline', {
+            conversationId: data.conversationId,
+            callerId: data.callerId,
+          });
+        }
+        return;
+      }
+
       setIncomingCall(data);
 
       sendDesktopNotification(`Incoming call from ${data.callerName}`, {
         body: `In ${data.conversationName}`,
+        tag: `call-${data.conversationId}`,
       });
 
       // Browser notification for incoming call
@@ -124,11 +141,54 @@ export function useCallSignaling(activeConversationId?: string) {
       closeCallIfMatching(data.conversationId);
     });
 
+    // Call escalated from 2-person direct to 3+ person group call
+    socket.on('call.escalated', (data: { roomName?: string; conversationId: string; conversationName?: string }) => {
+      const store = useCallStore.getState();
+      if (store.activeCall && (!data.roomName || store.activeCall.roomName === data.roomName)) {
+        store.updateConversationId(data.conversationId, data.conversationName);
+        store.setCallNotice(`Call upgraded to group: ${data.conversationName || 'Group Call'}`);
+        setTimeout(() => useCallStore.getState().setCallNotice(null), 4000);
+      }
+    });
+
+    // Another participant joined the active call.
+    socket.on('call.joined', (data: { conversationId: string; joinedBy: string; roomName: string; conversationName?: string }) => {
+      const store = useCallStore.getState();
+      if (store.activeCall && store.activeCall.roomName === data.roomName) {
+        store.setCallNotice('A participant joined the call');
+        setTimeout(() => useCallStore.getState().setCallNotice(null), 3000);
+      }
+    });
+
+    const handleBeforeUnload = () => {
+      const store = useCallStore.getState();
+      const activeCall = store.activeCall;
+      if (activeCall) {
+        socket.emit('call.end', {
+          conversationId: activeCall.conversationId,
+          roomName: activeCall.roomName,
+        });
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    const handlePageHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return;
+      handleBeforeUnload();
+    };
+    window.addEventListener('pagehide', handlePageHide);
+
+    socket.on('disconnect', () => {
+      setIncomingCall(null);
+    });
+
     if (socket.connected) {
       joinIfNeeded();
     }
 
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
       socket.disconnect();
       socketRef.current = null;
     };
@@ -200,10 +260,27 @@ export function useCallSignaling(activeConversationId?: string) {
     [],
   );
 
-  /** Join an already-live call (e.g. from a Join Call button) */
+  /** Join an already-live call (e.g. from a Join Call button).
+   *  The server returns the actual roomName (important for escalated calls). */
   const joinCall = useCallback(
-    (conversationId: string, roomName: string, conversationName: string) => {
-      socketRef.current?.emit('call.join', { conversationId, roomName, conversationName });
+    (
+      conversationId: string,
+      roomName: string,
+      conversationName: string,
+      onJoined?: (actualRoomName: string, actualConversationId: string) => void,
+    ) => {
+      socketRef.current?.emit(
+        'call.join',
+        { conversationId, roomName, conversationName },
+        (response: { status: string; roomName?: string; conversationId?: string }) => {
+          if (response?.status === 'joined' && onJoined) {
+            onJoined(
+              response.roomName || roomName,
+              response.conversationId || conversationId,
+            );
+          }
+        },
+      );
     },
     [],
   );

@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mail, MessageSquare, RefreshCw, Search, Users, X } from 'lucide-react';
+import { io } from 'socket.io-client';
+import { Mail, MessageSquare, RefreshCw, Search, Users, X, Radio } from 'lucide-react';
 import { chatsAPI, usersAPI, adminAPI } from '../../../services/api';
+import { resolveServiceBaseUrl } from '../../../lib/desktopRuntime';
 import { avatarAccent, initials } from '../_utils';
 import { isOnline, statusDotClass, statusLabel } from '../../../lib/statusAvailability';
 import { roleLabel } from '../../../lib/enumLabels';
@@ -26,6 +28,7 @@ export default function PeoplePage() {
   const [people, setPeople] = useState<Person[]>([]);
   const [query, setQuery] = useState('');
   const [department, setDepartment] = useState('All');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [selected, setSelected] = useState<Person | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -36,6 +39,14 @@ export default function PeoplePage() {
       const params = new URLSearchParams(window.location.search);
       const q = params.get('q');
       if (q) setQuery(q);
+      const status = params.get('status');
+      if (status === 'online' || status === 'offline') {
+        setStatusFilter(status);
+      } else if (params.get('online') === 'true' || params.get('filter') === 'online') {
+        setStatusFilter('online');
+      } else if (params.get('offline') === 'true' || params.get('filter') === 'offline') {
+        setStatusFilter('offline');
+      }
     } catch {
       /* ignore */
     }
@@ -71,20 +82,50 @@ export default function PeoplePage() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  // Live WebSocket presence update
+  useEffect(() => {
+    const socketUrl = resolveServiceBaseUrl();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
+    if (!token) return;
+
+    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+
+    socket.on('user.presence', (data: { userId: string; presence?: string; isOnline?: boolean }) => {
+      if (!data?.userId) return;
+      setPeople((prev) =>
+        prev.map((p) =>
+          p.userId === data.userId
+            ? { ...p, presence: data.presence || (data.isOnline ? 'ONLINE' : 'OFFLINE') }
+            : p,
+        ),
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   const departments = useMemo(
     () => ['All', ...Array.from(new Set(people.map((person) => person.department || 'General'))).sort()],
     [people],
   );
 
+  const onlineCount = people.filter(isOnline).length;
+  const offlineCount = people.length - onlineCount;
+
   const filtered = people.filter((person) => {
     const search = `${person.displayName} ${person.email || ''} ${person.role || ''} ${person.department || ''}`.toLowerCase();
-    return (
-      (!query || search.includes(query.toLowerCase())) &&
-      (department === 'All' || (person.department || 'General') === department)
-    );
+    const matchesSearch = !query || search.includes(query.toLowerCase());
+    const matchesDept = department === 'All' || (person.department || 'General') === department;
+    const matchesStatus =
+      statusFilter === 'all'
+        ? true
+        : statusFilter === 'online'
+        ? isOnline(person)
+        : !isOnline(person);
+    return matchesSearch && matchesDept && matchesStatus;
   });
-
-  const onlineCount = people.filter(isOnline).length;
 
   async function openDirectMessage(person: Person) {
     setCreatingChat(true);
@@ -105,9 +146,11 @@ export default function PeoplePage() {
         <div className="flex items-center gap-3">
           <Users className="h-5 w-5 text-blue-700" />
           <h1 className="text-lg font-bold text-slate-950">People</h1>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{people.length}</span>
-          <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+            {people.length}
+          </span>
+          <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200/60">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
             {onlineCount} online
           </span>
         </div>
@@ -122,7 +165,7 @@ export default function PeoplePage() {
 
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-3">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-6 py-3">
             <div className="relative min-w-56 max-w-sm flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -132,6 +175,47 @@ export default function PeoplePage() {
                 placeholder="Search people..."
               />
             </div>
+
+            {/* Status Tabs Bar */}
+            <div className="inline-flex items-center rounded-xl bg-slate-100/90 p-1 border border-slate-200/90 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('all')}
+                className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  statusFilter === 'all'
+                    ? 'bg-white text-slate-950 shadow-sm border border-slate-200/70 font-bold'
+                    : 'text-slate-600 hover:text-slate-950 hover:bg-white/50'
+                }`}
+              >
+                <span>All</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('online')}
+                className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  statusFilter === 'online'
+                    ? 'bg-white text-emerald-700 shadow-sm border border-emerald-200/80 font-bold'
+                    : 'text-emerald-700/80 hover:text-emerald-800 hover:bg-white/50'
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${statusFilter === 'online' ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-emerald-500'}`} />
+                <span>Online ({onlineCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('offline')}
+                className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  statusFilter === 'offline'
+                    ? 'bg-white text-slate-800 shadow-sm border border-slate-200/70 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${statusFilter === 'offline' ? 'bg-slate-500 ring-2 ring-slate-200' : 'bg-slate-400'}`} />
+                <span>Offline ({offlineCount})</span>
+              </button>
+            </div>
+
+            {/* Department Filter Pills */}
             <div className="flex flex-wrap gap-1">
               {departments.map((item) => (
                 <button
@@ -162,7 +246,19 @@ export default function PeoplePage() {
             ) : filtered.length === 0 ? (
               <div className="flex h-56 flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white text-slate-400">
                 <Users className="h-10 w-10 text-slate-300" />
-                <p className="text-sm">No people returned from the backend.</p>
+                <p className="text-sm">
+                  {statusFilter !== 'all'
+                    ? `No ${statusFilter} users found matching the selected filters.`
+                    : 'No people returned from the backend.'}
+                </p>
+                {statusFilter !== 'all' && (
+                  <button
+                    onClick={() => setStatusFilter('all')}
+                    className="text-xs font-semibold text-blue-600 hover:underline"
+                  >
+                    Show all users
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -182,12 +278,20 @@ export default function PeoplePage() {
                           {initials(person.displayName)}
                         </span>
                       )}
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white ${
+                          isOnline(person) ? 'bg-emerald-500' : 'bg-slate-300'
+                        }`}
+                      />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-slate-950">{person.displayName}</span>
                       <span className="block truncate text-xs text-slate-500">{roleLabel(person.role)}</span>
                       <span className="mt-1 block truncate text-xs font-medium text-slate-400">{person.department || 'General'}</span>
-                      <span className="mt-1 block text-[10px] font-semibold text-slate-500">{statusLabel(person)}</span>
+                      <span className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold text-slate-500">
+                        <span className={`h-1.5 w-1.5 rounded-full ${isOnline(person) ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                        {statusLabel(person)}
+                      </span>
                     </span>
                   </button>
                 ))}

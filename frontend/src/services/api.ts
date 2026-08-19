@@ -327,11 +327,11 @@ export const notificationsAPI = {
     api
       .get('/api/v1/notifications/push/public-key')
       .then((res) => res.data as { publicKey: string | null }),
-  subscribePush: (subscription: unknown) =>
-    api.post('/api/v1/notifications/push/subscribe', { subscription }).then((res) => res.data),
-  unsubscribePush: (subscription: unknown) =>
+  subscribePush: (body: { subscription?: unknown; token?: string; deviceType?: string }) =>
+    api.post('/api/v1/notifications/push/subscribe', body).then((res) => res.data),
+  unsubscribePush: (body: { subscription?: unknown; token?: string; deviceType?: string }) =>
     api
-      .delete('/api/v1/notifications/push/subscribe', { data: { subscription } })
+      .delete('/api/v1/notifications/push/subscribe', { data: body })
       .then((res) => res.data),
 };
 
@@ -370,6 +370,25 @@ export const calendarAPI = {
     meetingLink?: string;
     attendeeIds?: string[];
   }) => api.post('/api/v1/calendar', body).then((res) => res.data),
+  updateEvent: (
+    id: string,
+    body: {
+      title?: string;
+      description?: string;
+      startsAt?: string;
+      endsAt?: string;
+      teamName?: string;
+      meetingLink?: string;
+      attendeeIds?: string[];
+      notifyAttendees?: boolean;
+    },
+  ) => api.patch(`/api/v1/calendar/${id}`, body).then((res) => res.data),
+  deleteEvent: (id: string) =>
+    api.delete(`/api/v1/calendar/${id}`).then((res) => res.data),
+  sendInvites: (id: string, attendeeIds?: string[]) =>
+    api.post(`/api/v1/calendar/${id}/invites`, { attendeeIds }).then((res) => res.data),
+  downloadIcs: (id: string) =>
+    api.get(`/api/v1/calendar/${id}/ics`, { responseType: 'blob' }),
 };
 
 export const appsAPI = {

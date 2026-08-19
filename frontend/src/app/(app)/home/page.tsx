@@ -87,12 +87,12 @@ const statConfig = [
   },
   {
     key: 'files',
-    label: 'Files',
+    label: 'My Files',
     icon: FileText,
     iconColor: 'text-emerald-600',
     iconBg: 'bg-emerald-50',
     accent: 'border-l-emerald-500',
-    href: '/files',
+    href: '/files?scope=mine',
   },
 ] as const;
 

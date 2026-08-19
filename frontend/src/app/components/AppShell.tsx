@@ -22,6 +22,8 @@ import {
   Check,
   Camera,
   PhoneCall,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { ChangeEvent, FormEvent, useState, useEffect, useRef, type ReactNode } from 'react';
 import { usersAPI, notificationsAPI, authAPI, messagesAPI, filesAPI, type MessageSearchHit } from '../../services/api';
@@ -50,6 +52,8 @@ import {
   resolveServiceBaseUrl,
   sendDesktopNotification,
 } from '../../lib/desktopRuntime';
+import { useBrowserPush } from '../../hooks/useBrowserPush';
+import { unregisterBrowserPush } from '../../lib/push';
 
 const navItems = [
   { label: 'Home', icon: HomeIcon, href: '/home', navKey: 'home', color: '#0284c7', activeBg: 'rgba(2, 132, 199, 0.12)' },
@@ -204,12 +208,36 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [socketConnected, setSocketConnected] = useState(false);
   /** Off-canvas nav state; only meaningful below the lg breakpoint. */
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('teamtime_sidebar_collapsed');
+      if (stored === 'true') setSidebarCollapsed(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const toggleSidebarCollapse = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('teamtime_sidebar_collapsed', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
   const [showDisconnectedBanner, setShowDisconnectedBanner] = useState(false);
   const hasConnectedRef = useRef(false);
 
   useEffect(() => {
     void ensureDesktopConfig();
   }, []);
+
+  useBrowserPush(Boolean(user?.id));
 
   const activeCall = useCallStore((state) => state.activeCall);
   const outgoingCall = useCallStore((state) => state.outgoingCall);
@@ -227,6 +255,22 @@ export default function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     registerSignaling({ inviteToCall, acceptCall, declineCall, endCall, cancelCall, joinCall });
   }, [registerSignaling, inviteToCall, acceptCall, declineCall, endCall, cancelCall, joinCall]);
+
+  // Track active-call state for the Electron main process so it can warn on close.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__commInCall = !!activeCall;
+    }
+  }, [activeCall]);
+
+  // Listen for desktop "force end call" IPC and end the call gracefully.
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.onForceEndCall) {
+      window.electronAPI.onForceEndCall(() => {
+        signalEndCall();
+      });
+    }
+  }, [signalEndCall]);
 
   /**
    * Only warn about a connection that was working and then dropped. Showing it
@@ -396,6 +440,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }
 
   async function handleLogout() {
+    await unregisterBrowserPush();
     const sessionId = localStorage.getItem('veloce_session');
     const refreshToken = localStorage.getItem('veloce_refresh');
     try {
@@ -587,29 +632,56 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <aside
         id="app-sidebar"
         aria-label="Main navigation"
-        className={`app-shell-sidebar w-[240px] shrink-0 flex-col bg-white border-r border-slate-200/80 text-slate-800 shadow-[1px_0_10px_rgba(0,0,0,0.01)] backdrop-blur-md lg:static lg:z-20 lg:flex ${
+        className={`app-shell-sidebar shrink-0 flex-col bg-white border-r border-slate-200/80 text-slate-800 shadow-[1px_0_10px_rgba(0,0,0,0.01)] backdrop-blur-md transition-all duration-300 ease-in-out lg:static lg:z-20 lg:flex ${
+          sidebarCollapsed ? 'lg:w-[70px]' : 'lg:w-[240px]'
+        } ${
           mobileNavOpen
-            ? 'fixed inset-y-0 left-0 z-40 flex'
+            ? 'fixed inset-y-0 left-0 z-40 flex w-[240px]'
             : 'hidden'
         }`}
       >
-        <div className="flex h-16 items-center border-b border-slate-100/80 px-4">
+        {/* Sidebar Header with Logo and Minimize Button */}
+        <div className={`flex h-16 items-center border-b border-slate-100/80 ${sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
           <Link
             href="/home"
-            className="flex max-w-full shrink-0 items-center rounded-lg outline-none ring-blue-500/40 focus-visible:ring-2"
+            className="flex max-w-full shrink-0 items-center rounded-lg outline-none ring-blue-500/40 focus-visible:ring-2 overflow-hidden"
             aria-label="TeamTime home"
+            title="TeamTime Home"
           >
-            <img
-              src="/teamtime.png"
-              alt="TeamTime"
-              width={200}
-              height={48}
-              className="h-11 w-auto max-w-[200px] object-contain object-left"
-            />
+            {sidebarCollapsed ? (
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50">
+                <img
+                  src="/teamtime.png"
+                  alt="TeamTime"
+                  width={36}
+                  height={36}
+                  className="h-7 w-7 object-contain"
+                />
+              </div>
+            ) : (
+              <img
+                src="/teamtime.png"
+                alt="TeamTime"
+                width={200}
+                height={48}
+                className="h-11 w-auto max-w-[165px] object-contain object-left"
+              />
+            )}
           </Link>
+
+          {!sidebarCollapsed && (
+            <button
+              onClick={toggleSidebarCollapse}
+              className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+              title="Minimize sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
+        {/* Navigation Items */}
+        <nav className={`flex-1 space-y-1 py-4 overflow-y-auto ${sidebarCollapsed ? 'px-2' : 'px-3'}`}>
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href);
@@ -619,7 +691,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 href={item.href}
                 id={`nav-${item.label.toLowerCase()}`}
                 aria-current={active ? 'page' : undefined}
-                className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 group ${
+                title={sidebarCollapsed ? item.label : undefined}
+                className={`relative flex items-center rounded-xl text-sm font-medium transition-all duration-200 group ${
+                  sidebarCollapsed
+                    ? 'justify-center h-10 w-full px-0'
+                    : 'gap-3 px-3 py-2 w-full'
+                } ${
                   active
                     ? 'bg-blue-50 text-blue-600 font-semibold'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -627,39 +704,108 @@ export default function AppShell({ children }: { children: ReactNode }) {
               >
                 {/* Active Indicator Bar on Left */}
                 {active && (
-                  <div className="absolute left-[-12px] top-1/2 -translate-y-1/2 w-[3px] h-7 rounded-r bg-blue-600" />
+                  <div
+                    className={`absolute top-1/2 -translate-y-1/2 w-[3px] h-7 rounded-r bg-blue-600 ${
+                      sidebarCollapsed ? 'left-[-8px]' : 'left-[-12px]'
+                    }`}
+                  />
                 )}
                 
-                <Icon className={`h-4 w-4 transition-colors duration-200 ${active ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-500'}`} />
-                <span className="select-none">{item.label}</span>
+                <Icon className={`transition-colors duration-200 ${sidebarCollapsed ? 'h-5 w-5' : 'h-4 w-4'} ${active ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-500'}`} />
+                {!sidebarCollapsed && <span className="select-none truncate">{item.label}</span>}
               </Link>
             );
           })}
         </nav>
 
+        {/* Sidebar Minimize/Expand Toggle at Bottom of Nav */}
+        <div className="px-2 pb-2">
+          <button
+            onClick={toggleSidebarCollapse}
+            className={`hidden lg:flex w-full items-center rounded-xl py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition ${
+              sidebarCollapsed ? 'justify-center px-0' : 'justify-between px-3'
+            }`}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Minimize sidebar'}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4 text-slate-600" />
+            ) : (
+              <>
+                <span className="truncate">Collapse sidebar</span>
+                <PanelLeftClose className="h-4 w-4 text-slate-400" />
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* User Profile & Status Footer */}
         <div className="relative mt-auto">
           <div 
             onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-            className="border-t border-slate-100/80 p-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 active:scale-[0.98] transition-all duration-200 group"
-            title="Set status"
+            className={`border-t border-slate-100/80 flex items-center cursor-pointer hover:bg-slate-50 active:scale-[0.98] transition-all duration-200 group ${
+              sidebarCollapsed ? 'justify-center p-3' : 'justify-between p-4'
+            }`}
+            title={sidebarCollapsed ? `${displayName} (${statusLabel(selfStatus)})` : 'Set status'}
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="relative">
+              <div className="relative shrink-0">
                 {user?.avatarUrl ? (
                   <img src={user.avatarUrl} alt={displayName} className="h-9 w-9 rounded-full object-cover shadow-xs border border-slate-200" />
                 ) : (
                   <Avatar initials={initials || 'U'} accent="bg-orange-500 text-white shadow-sm" size="md" />
                 )}
+                {/* Status Dot badge on avatar */}
+                <span
+                  className="absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-white shadow-xs"
+                  style={{
+                    width: '11px',
+                    height: '11px',
+                    minWidth: '11px',
+                    minHeight: '11px',
+                    backgroundColor:
+                      selfStatus.availability === 'AWAY'
+                        ? '#f59e0b'
+                        : selfStatus.availability === 'DND'
+                        ? '#ef4444'
+                        : selfStatus.availability === 'OUT_OF_OFFICE'
+                        ? '#a855f7'
+                        : selfStatus.presence === 'ONLINE'
+                        ? '#10b981'
+                        : '#94a3b8',
+                  }}
+                />
               </div>
-              <div className="min-w-0">
-                <div className="text-sm font-bold text-slate-800 truncate leading-tight group-hover:text-slate-950">{displayName}</div>
-                <div className="text-[11px] text-slate-500 font-medium leading-tight flex items-center gap-1 mt-0.5">
-                  <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass(selfStatus)}`}></span>
-                  {statusLabel(selfStatus)}
+              {!sidebarCollapsed && (
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-slate-800 truncate leading-tight group-hover:text-slate-950">{displayName}</div>
+                  <div className="text-[11px] text-slate-500 font-medium leading-tight flex items-center gap-1.5 mt-0.5">
+                    <span
+                      className="rounded-full shrink-0"
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        minWidth: '8px',
+                        minHeight: '8px',
+                        backgroundColor:
+                          selfStatus.availability === 'AWAY'
+                            ? '#f59e0b'
+                            : selfStatus.availability === 'DND'
+                            ? '#ef4444'
+                            : selfStatus.availability === 'OUT_OF_OFFICE'
+                            ? '#a855f7'
+                            : selfStatus.presence === 'ONLINE'
+                            ? '#10b981'
+                            : '#94a3b8',
+                      }}
+                    />
+                    <span className="truncate">{statusLabel(selfStatus)}</span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-            <ChevronDown className="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition-colors shrink-0" />
+            {!sidebarCollapsed && (
+              <ChevronDown className="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition-colors shrink-0" />
+            )}
           </div>
 
           {showStatusDropdown && (
@@ -668,55 +814,78 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 className="fixed inset-0 z-40" 
                 onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(false); }}
               />
-              <div className="absolute bottom-[72px] left-4 w-56 rounded-xl border border-slate-200 bg-white p-1 shadow-lg ring-1 ring-black/5 focus:outline-none z-50 dropdown-card">
+              <div className={`absolute bottom-[72px] ${sidebarCollapsed ? 'left-16 w-60' : 'left-4 w-60'} rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5 focus:outline-none z-50 dropdown-card`}>
                 <div className="px-3 py-2 text-xs border-b border-slate-100 mb-1">
-                  <div className="font-bold text-slate-800">Set Status</div>
+                  <div className="font-bold text-slate-800 text-xs">Set Status</div>
                   <div className="mt-0.5 text-[11px] font-normal text-slate-500">
                     Online and offline follow your connection.
                   </div>
                 </div>
-                {AVAILABILITY_PICKER_OPTIONS.map((s) => {
-                  let dotClass = 'status-dot-emerald';
-                  if (s.value === 'AWAY') {
-                    dotClass = 'status-dot-amber';
-                  } else if (s.value === 'DND') {
-                    dotClass = 'status-dot-red';
-                  } else if (s.value === 'OUT_OF_OFFICE') {
-                    dotClass = 'status-dot-purple';
-                  }
-                  return (
-                    <button
-                      key={s.value || 'none'}
-                      onClick={(e) => { e.stopPropagation(); handleUpdateStatus(s.value); }}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 transition cursor-pointer"
-                    >
-                      <span className={`shrink-0 ${dotClass}`} />
-                      <span className="font-medium text-slate-800">{s.label}</span>
-                      {(user?.availability ?? '') === s.value && <Check className="h-4 w-4 ml-auto text-blue-600" />}
-                    </button>
-                  );
-                })}
-                <div className="border-t border-slate-100 mt-1 mb-1"></div>
+                <div className="space-y-0.5 py-0.5">
+                  {AVAILABILITY_PICKER_OPTIONS.map((s) => {
+                    const solidColor =
+                      s.value === 'AWAY'
+                        ? '#f59e0b'
+                        : s.value === 'DND'
+                        ? '#ef4444'
+                        : s.value === 'OUT_OF_OFFICE'
+                        ? '#a855f7'
+                        : '#10b981';
+                    const glowColor =
+                      s.value === 'AWAY'
+                        ? 'rgba(245, 158, 11, 0.25)'
+                        : s.value === 'DND'
+                        ? 'rgba(239, 68, 68, 0.25)'
+                        : s.value === 'OUT_OF_OFFICE'
+                        ? 'rgba(168, 85, 247, 0.25)'
+                        : 'rgba(16, 185, 129, 0.25)';
+                    const isSelected = (user?.availability ?? '') === s.value;
+                    return (
+                      <button
+                        key={s.value || 'none'}
+                        onClick={(e) => { e.stopPropagation(); handleUpdateStatus(s.value); }}
+                        className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-semibold transition cursor-pointer ${
+                          isSelected ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span
+                          className="shrink-0 rounded-full"
+                          style={{
+                            width: '10px',
+                            height: '10px',
+                            minWidth: '10px',
+                            minHeight: '10px',
+                            backgroundColor: solidColor,
+                            boxShadow: `0 0 0 2px ${glowColor}`,
+                          }}
+                        />
+                        <span className="text-xs font-medium text-slate-800">{s.label}</span>
+                        {isSelected && <Check className="h-4 w-4 ml-auto text-blue-600 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-slate-100 my-1"></div>
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(false); handleEditProfile(); }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 transition"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                 >
                   <UserCircle2 className="h-4 w-4 text-slate-400" />
-                  Edit Profile
+                  <span>Edit Profile</span>
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(false); setShowPasswordModal(true); }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 transition"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                 >
                   <KeyRound className="h-4 w-4 text-slate-400" />
-                  Change password
+                  <span>Change password</span>
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(false); handleLogout(); }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50 transition cursor-pointer"
                 >
                   <LogOut className="h-4 w-4 text-red-400" />
-                  Logout
+                  <span>Logout</span>
                 </button>
               </div>
             </>
@@ -726,15 +895,22 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       <div className="app-shell-body flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="app-shell-header relative z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200/50 bg-white/80 px-3 backdrop-blur-md lg:h-20 lg:gap-0 lg:px-8">
-          {/* Left section: menu toggle (small screens) + title */}
+          {/* Left section: menu toggle (desktop & mobile) + title */}
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => setMobileNavOpen((open) => !open)}
-              aria-label="Open navigation"
-              aria-expanded={mobileNavOpen}
+              onClick={() => {
+                if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+                  toggleSidebarCollapse();
+                } else {
+                  setMobileNavOpen((open) => !open);
+                }
+              }}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Minimize sidebar'}
+              aria-expanded={!sidebarCollapsed}
               aria-controls="app-sidebar"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100 lg:hidden"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-600 hover:text-slate-900 transition hover:bg-slate-100"
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Minimize sidebar'}
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -1156,6 +1332,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       {activeCall && (
         <VideoCallModal
+          conversationId={activeCall.conversationId}
           roomName={activeCall.roomName}
           conversationName={activeCall.conversationName}
           view={activeCall.view}
@@ -1183,11 +1360,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
               incomingCall.roomName,
               incomingCall.conversationName,
             );
-            if (incomingCall.conversationType === 'DIRECT') {
-              router.push(`/dms?conversation=${incomingCall.conversationId}`);
-            } else {
-              router.push(`/teams?conversation=${incomingCall.conversationId}`);
-            }
           }}
           onDecline={() =>
             declineCallFromStore(incomingCall.conversationId, incomingCall.callerId)

@@ -776,4 +776,101 @@ export class MessagesService {
 
     return forwarded;
   }
+
+  async getCallHistory(
+    userId: string,
+    params: {
+      conversationId?: string;
+      limit?: number;
+      before?: string;
+    },
+  ) {
+    const participantRecords = await this.prisma.conversationParticipant.findMany({
+      where: { userId },
+      select: { conversationId: true },
+    });
+    const allowedConversationIds = participantRecords.map((p) => p.conversationId);
+
+    if (allowedConversationIds.length === 0) {
+      return { messages: [], hasMore: false, nextCursor: null };
+    }
+
+    let targetConversationIds = allowedConversationIds;
+    if (params.conversationId) {
+      if (!allowedConversationIds.includes(params.conversationId)) {
+        return { messages: [], hasMore: false, nextCursor: null };
+      }
+      targetConversationIds = [params.conversationId];
+    }
+
+    const takeLimit = Math.min(Math.max(params.limit || 30, 1), 100);
+
+    const where: any = {
+      conversationId: { in: targetConversationIds },
+      messageType: {
+        in: [
+          'SYSTEM_CALL_START',
+          'SYSTEM_CALL_END',
+          'SYSTEM_CALL_DECLINE',
+          'CALL',
+          'CALL_MISSED',
+          'CALL_ENDED',
+          'VIDEO_CALL',
+          'AUDIO_CALL',
+        ],
+      },
+    };
+
+    if (params.before) {
+      const cursorMsg = await this.prisma.message.findUnique({
+        where: { id: params.before },
+        select: { createdAt: true },
+      });
+      if (cursorMsg) {
+        where.createdAt = { lt: cursorMsg.createdAt };
+      }
+    }
+
+    const messages = await this.prisma.message.findMany({
+      where,
+      include: {
+        sender: {
+          select: {
+            id: true,
+            email: true,
+            profile: {
+              select: {
+                displayName: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+        conversation: {
+          select: {
+            id: true,
+            type: true,
+            group: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: takeLimit + 1,
+    });
+
+    const hasMore = messages.length > takeLimit;
+    const items = hasMore ? messages.slice(0, takeLimit) : messages;
+    const nextCursor =
+      hasMore && items.length > 0 ? items[items.length - 1].id : null;
+
+    return {
+      messages: items,
+      hasMore,
+      nextCursor,
+    };
+  }
 }

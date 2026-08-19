@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, useMemo, type PointerEvent as ReactPointerEvent } from 'react';
-import { Maximize2, Minimize2, PhoneOff, UserPlus, Search, Check, X } from 'lucide-react';
+import { io } from 'socket.io-client';
+import { Maximize2, Minimize2, PhoneOff, PhoneCall, UserPlus, Search, Check, X, MessageSquare, Send } from 'lucide-react';
 import Portal from './Portal';
-import { usersAPI, chatsAPI } from '../../services/api';
+import { usersAPI, chatsAPI, messagesAPI } from '../../services/api';
+import { resolveServiceBaseUrl } from '../../lib/desktopRuntime';
 import { avatarAccent, initials } from '../(app)/_utils';
 import {
   isDocumentPipSupported,
@@ -31,7 +33,24 @@ type DirectoryPerson = {
   department?: string | null;
 };
 
+type InCallMessage = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string | null;
+  messageType?: string;
+  createdAt: string;
+  sender?: {
+    id?: string;
+    profile?: {
+      displayName?: string | null;
+      avatarUrl?: string | null;
+    } | null;
+  } | null;
+};
+
 type VideoCallModalProps = {
+  conversationId?: string;
   roomName: string;
   conversationName: string;
   userName?: string;
@@ -44,6 +63,7 @@ type VideoCallModalProps = {
 type PipSurface = 'inline' | 'document';
 
 export function VideoCallModal({
+  conversationId,
   roomName,
   conversationName,
   userName,
@@ -63,11 +83,106 @@ export function VideoCallModal({
   const [pipSurface, setPipSurface] = useState<PipSurface>('inline');
   const [duration, setDuration] = useState(0);
 
+  const storeConversationId = useCallStore((state) => state.activeCall?.conversationId);
+  const activeConversationId = conversationId || storeConversationId || '';
+
+  // In-Call Chat State
+  const [showInCallChat, setShowInCallChat] = useState(false);
+  const [inCallMessages, setInCallMessages] = useState<InCallMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [inviteSearch, setInviteSearch] = useState('');
-  const [invitedUserIds, setInvitedUserIds] = useState<string[]>([]);
+  const [callCountByUser, setCallCountByUser] = useState<Record<string, number>>({});
+  const [callingUserId, setCallingUserId] = useState<string | null>(null);
   const isPip = view === 'pip';
+
+  const currentUserId = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const stored = localStorage.getItem('veloce_user');
+      return stored ? JSON.parse(stored).id || '' : '';
+    } catch {
+      return '';
+    }
+  }, []);
+
+  // Fetch in-call chat history
+  useEffect(() => {
+    if (!activeConversationId) return;
+    let isCurrent = true;
+
+    chatsAPI
+      .getHistory(activeConversationId, { limit: 50 })
+      .then((data) => {
+        if (!isCurrent) return;
+        const msgs = (data?.messages || []) as InCallMessage[];
+        setInCallMessages(msgs);
+      })
+      .catch(() => {});
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [activeConversationId]);
+
+  // Real-time live messaging in call
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const socketUrl = resolveServiceBaseUrl();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
+    if (!token) return;
+
+    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+
+    socket.emit('room.join', { conversationId: activeConversationId });
+
+    socket.on('message.sent', (msg: InCallMessage) => {
+      if (msg?.conversationId === activeConversationId) {
+        setInCallMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+        if (!showInCallChat && msg.senderId !== currentUserId) {
+          setUnreadChatCount((count) => count + 1);
+        }
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [activeConversationId, showInCallChat, currentUserId]);
+
+  // Auto-scroll chat on new messages
+  useEffect(() => {
+    if (showInCallChat) {
+      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [inCallMessages, showInCallChat]);
+
+  async function handleSendChatMessage(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    const text = chatInput.trim();
+    if (!text || !activeConversationId || sendingMessage) return;
+
+    setSendingMessage(true);
+    setChatInput('');
+    try {
+      await messagesAPI.send({
+        conversationId: activeConversationId,
+        content: text,
+      });
+    } catch {
+      setError('Could not send in-call chat message.');
+    } finally {
+      setSendingMessage(false);
+    }
+  }
 
   useEffect(() => {
     if (!showInviteModal) return;
@@ -88,16 +203,22 @@ export function VideoCallModal({
     });
   }, [people, inviteSearch]);
 
-  async function handleInviteUser(person: DirectoryPerson) {
+  async function handleCallUser(person: DirectoryPerson) {
     const signaling = useCallStore.getState().signaling;
+    setCallingUserId(person.userId);
     try {
-      // Ensure a direct conversation exists with this person before inviting.
+      // Ensure a direct conversation exists with this person before calling.
       const conversation = await chatsAPI.createDirect(person.userId);
       const conversationId = conversation.id || conversation.conversationId;
       signaling?.inviteToCall(conversationId, roomName, resolvedName, conversationName);
-      setInvitedUserIds((prev) => [...prev, person.userId]);
+      setCallCountByUser((prev) => ({
+        ...prev,
+        [person.userId]: (prev[person.userId] || 0) + 1,
+      }));
     } catch {
-      setError('Could not invite this person.');
+      setError('Could not call this person.');
+    } finally {
+      setCallingUserId(null);
     }
   }
 
@@ -107,6 +228,7 @@ export function VideoCallModal({
   const onMinimizeRef = useRef(onMinimize);
   const onExpandRef = useRef(onExpand);
   const onEndRef = useRef(onEnd);
+  const hasEndedRef = useRef(false);
   onMinimizeRef.current = onMinimize;
   onExpandRef.current = onExpand;
   onEndRef.current = onEnd;
@@ -216,10 +338,8 @@ export function VideoCallModal({
         });
 
         apiRef.current.addListener('readyToClose', () => {
-          onEndRef.current();
-        });
-
-        apiRef.current.addListener('videoConferenceLeft', () => {
+          if (hasEndedRef.current) return;
+          hasEndedRef.current = true;
           onEndRef.current();
         });
 
@@ -302,7 +422,7 @@ export function VideoCallModal({
 
   useEffect(() => {
     resizeJitsi();
-  }, [view, pipSurface]);
+  }, [view, pipSurface, showInCallChat]);
 
   useEffect(() => {
     if (!isPip || pipSurface !== 'inline' || !pipPosition) return;
@@ -391,7 +511,7 @@ export function VideoCallModal({
     <Portal>
       {!isPip && (
         <div
-          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[120] bg-black/85 backdrop-blur-sm pointer-events-auto"
           aria-hidden="true"
         />
       )}
@@ -400,7 +520,7 @@ export function VideoCallModal({
         ref={portalHostRef}
         className={
           !isPip
-            ? 'fixed inset-0 z-[100] flex items-center justify-center p-4 pointer-events-none'
+            ? 'fixed inset-0 z-[130] flex items-center justify-center p-4 pointer-events-none'
             : undefined
         }
       >
@@ -432,9 +552,9 @@ export function VideoCallModal({
               </div>
             </>
           ) : (
-            /* ── Fullscreen: edge-to-edge video with floating transparent header ── */
-            <>
-              {/* Video container fills 100% of modal height */}
+            /* ── Fullscreen: edge-to-edge video with overlay in-call chat drawer ── */
+            <div className="relative h-full w-full overflow-hidden bg-black">
+              {/* Video container fills 100% of modal height stably */}
               <div className="absolute inset-0 bg-black">
                 {error ? (
                   <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-white">
@@ -445,11 +565,15 @@ export function VideoCallModal({
                 )}
               </div>
 
-              {/* Floating control bar in top-center of video width */}
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2.5 rounded-full bg-slate-900/40 backdrop-blur-xl border border-white/30 p-1.5 px-3.5 shadow-[0_8px_32px_rgba(0,0,0,0.37)] ring-1 ring-white/15 select-none">
+              {/* Floating control bar in top-center of video area */}
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 rounded-full bg-slate-900/70 backdrop-blur-xl border border-white/20 p-1.5 px-3.5 shadow-2xl ring-1 ring-white/10 select-none pointer-events-auto">
                 <button
                   type="button"
-                  onClick={() => setShowInviteModal(true)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowInviteModal(true);
+                  }}
                   className="flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 text-xs font-bold shadow-md shadow-blue-500/20 transition active:scale-95 cursor-pointer"
                   title="Add / Invite Member to Call"
                 >
@@ -459,11 +583,42 @@ export function VideoCallModal({
 
                 <div className="h-4.5 w-[1px] bg-white/25" />
 
+                {/* In-Call Chat Toggle Button */}
                 <button
                   type="button"
-                  onClick={onMinimize}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowInCallChat((prev) => !prev);
+                    setUnreadChatCount(0);
+                  }}
+                  className={`relative flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-bold transition active:scale-95 cursor-pointer pointer-events-auto ${
+                    showInCallChat
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                      : 'bg-white/15 hover:bg-white/25 text-white'
+                  }`}
+                  title={showInCallChat ? 'Hide In-Call Chat' : 'Open In-Call Chat'}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span>Chat</span>
+                  {unreadChatCount > 0 && !showInCallChat && (
+                    <span className="flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-extrabold text-white animate-pulse">
+                      {unreadChatCount}
+                    </span>
+                  )}
+                </button>
+
+                <div className="h-4.5 w-[1px] bg-white/25" />
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onMinimize();
+                  }}
                   disabled={!isReady && !error}
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-white/85 hover:bg-white/20 hover:text-white disabled:opacity-40 transition-colors"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-white/85 hover:bg-white/20 hover:text-white disabled:opacity-40 transition-colors cursor-pointer"
                   title="Minimize to PiP"
                 >
                   <Minimize2 className="h-4.5 w-4.5" />
@@ -473,7 +628,11 @@ export function VideoCallModal({
 
                 <button
                   type="button"
-                  onClick={handleEnd}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleEnd();
+                  }}
                   className="flex h-9 items-center gap-1.5 rounded-full bg-red-600 hover:bg-red-700 text-white px-4 text-xs font-bold shadow-md shadow-red-600/20 transition active:scale-95 cursor-pointer"
                   title="End call"
                 >
@@ -481,7 +640,113 @@ export function VideoCallModal({
                   <span>End Call</span>
                 </button>
               </div>
-            </>
+
+              {/* Right: In-Call Chat Drawer Overlay */}
+              {showInCallChat && (
+                <aside className="absolute right-0 top-0 bottom-0 z-50 flex h-full w-80 md:w-96 flex-col border-l border-slate-800/80 bg-slate-950/98 backdrop-blur-2xl shadow-2xl pointer-events-auto">
+                  {/* Chat Header */}
+                  <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 px-4">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400">
+                        <MessageSquare className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-xs font-bold text-white truncate">In-Call Chat</h3>
+                        <p className="text-[10px] text-slate-400 truncate">{conversationName}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowInCallChat(false);
+                      }}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                      title="Close Chat"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </header>
+
+                  {/* Chat Messages Body */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {inCallMessages.length === 0 ? (
+                      <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500">
+                        <MessageSquare className="h-8 w-8 text-slate-600" />
+                        <p className="text-xs font-medium">No messages yet in this call.</p>
+                        <p className="text-[11px] text-slate-600">Messages sent here will stay archived in your chats.</p>
+                      </div>
+                    ) : (
+                      inCallMessages.map((msg) => {
+                        const isOwn = msg.senderId === currentUserId;
+                        const isSystem = msg.messageType?.startsWith('SYSTEM_');
+                        if (isSystem) {
+                          return (
+                            <div key={msg.id} className="my-1.5 flex justify-center">
+                              <span className="rounded-full bg-slate-800/70 px-2.5 py-0.5 text-[10px] text-slate-400">
+                                {msg.content}
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        const senderName = msg.sender?.profile?.displayName || 'Colleague';
+                        const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}
+                          >
+                            {!isOwn && (
+                              <span className="mb-1 text-[10px] font-bold text-slate-400">
+                                {senderName}
+                              </span>
+                            )}
+                            <div
+                              className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-xs break-words shadow-xs ${
+                                isOwn
+                                  ? 'bg-blue-600 text-white rounded-br-xs'
+                                  : 'bg-slate-800 text-slate-100 rounded-bl-xs border border-slate-700/60'
+                              }`}
+                            >
+                              {msg.content}
+                            </div>
+                            <span className="mt-0.5 text-[9px] text-slate-500">
+                              {timeStr}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                    <div ref={chatBottomRef} />
+                  </div>
+
+                  {/* Chat Input Footer */}
+                  <form
+                    onSubmit={handleSendChatMessage}
+                    className="flex items-center gap-2 border-t border-slate-800 p-3 bg-slate-900/60"
+                  >
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder="Type a message to call..."
+                      className="h-9 flex-1 rounded-xl border border-slate-800 bg-slate-900 px-3.5 text-xs text-white placeholder-slate-500 outline-none focus:border-blue-500 focus:bg-slate-800 transition"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!chatInput.trim() || sendingMessage}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 transition active:scale-95 cursor-pointer shadow-sm shadow-blue-500/20"
+                      title="Send Message"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </form>
+                </aside>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -526,7 +791,8 @@ export function VideoCallModal({
                   <div className="p-4 text-center text-xs text-slate-400">No workspace members found.</div>
                 ) : (
                   filteredCandidates.map((person) => {
-                    const isInvited = invitedUserIds.includes(person.userId);
+                    const callCount = callCountByUser[person.userId] || 0;
+                    const isCalling = callingUserId === person.userId;
                     return (
                       <div
                         key={person.userId}
@@ -544,25 +810,25 @@ export function VideoCallModal({
 
                         <button
                           type="button"
-                          disabled={isInvited}
-                          onClick={() => handleInviteUser(person)}
-                          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition shadow-xs ${
-                            isInvited
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-95'
+                          disabled={isCalling}
+                          onClick={() => handleCallUser(person)}
+                          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition shadow-xs cursor-pointer active:scale-95 ${
+                            isCalling
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 opacity-80'
+                              : callCount > 0
+                              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                           }`}
+                          title={callCount > 0 ? 'Ring colleague again' : 'Call colleague into this meeting'}
                         >
-                          {isInvited ? (
-                            <>
-                              <Check className="h-3.5 w-3.5" />
-                              <span>Invited</span>
-                            </>
-                          ) : (
-                            <>
-                              <UserPlus className="h-3.5 w-3.5" />
-                              <span>Invite</span>
-                            </>
-                          )}
+                          <PhoneCall className={`h-3.5 w-3.5 ${isCalling ? 'animate-pulse' : ''}`} />
+                          <span>
+                            {isCalling
+                              ? 'Calling...'
+                              : callCount > 0
+                              ? `Call Again${callCount > 1 ? ` (${callCount})` : ''}`
+                              : 'Call'}
+                          </span>
                         </button>
                       </div>
                     );

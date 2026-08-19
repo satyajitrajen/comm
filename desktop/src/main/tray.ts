@@ -1,5 +1,6 @@
-import { Tray, Menu, app, BrowserWindow, nativeImage } from 'electron';
+import { Tray, Menu, app, BrowserWindow, nativeImage, ipcMain } from 'electron';
 import path from 'path';
+import { setDndEnabled } from './notification';
 
 let tray: Tray | null = null;
 
@@ -22,9 +23,9 @@ export function setupSystemTray(mainWindow: BrowserWindow): Tray {
     {
       label: 'Status',
       submenu: [
-        { label: '🟢 Online', type: 'radio', checked: true, click: () => setStatus('online') },
-        { label: '🟡 Away', type: 'radio', click: () => setStatus('away') },
-        { label: '🔴 Do Not Disturb', type: 'radio', click: () => setStatus('dnd') },
+        { label: '🟢 Online', type: 'radio', checked: true, click: () => setTrayStatus('online') },
+        { label: '🟡 Away', type: 'radio', click: () => setTrayStatus('away') },
+        { label: '🔴 Do Not Disturb', type: 'radio', click: () => setTrayStatus('dnd') },
       ],
     },
     { type: 'separator' },
@@ -50,6 +51,12 @@ export function setupSystemTray(mainWindow: BrowserWindow): Tray {
   return tray;
 }
 
-function setStatus(status: 'online' | 'away' | 'dnd') {
+function setTrayStatus(status: 'online' | 'away' | 'dnd') {
   console.log(`[Tray] User set status to: ${status}`);
+  setDndEnabled(status === 'dnd');
+  // Notify renderer so it can suppress browser notifications too
+  const windows = BrowserWindow.getAllWindows();
+  for (const win of windows) {
+    win.webContents.send('tray:statusChanged', status);
+  }
 }

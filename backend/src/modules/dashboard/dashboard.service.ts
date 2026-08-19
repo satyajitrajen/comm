@@ -62,7 +62,11 @@ export class DashboardService {
         },
       }),
       this.prisma.file.count({
-        where: { workspaceId, isDeleted: false },
+        where: {
+          workspaceId,
+          uploadedBy: userId,
+          isDeleted: false,
+        },
       }),
       this.prisma.calendarEvent.count({
         where: {

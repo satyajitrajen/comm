@@ -31,21 +31,19 @@ export class NotificationsController {
   @Post('push/subscribe')
   async subscribePush(
     @CurrentUserId() userId: string,
-    @Body() body: { subscription: unknown; deviceType?: string },
+    @Body()
+    body: { subscription?: unknown; token?: string; deviceType?: string },
   ) {
-    return await this.pushService.subscribe(
-      userId,
-      body.subscription,
-      body.deviceType,
-    );
+    return await this.pushService.subscribe(userId, body);
   }
 
   @Delete('push/subscribe')
   async unsubscribePush(
     @CurrentUserId() userId: string,
-    @Body() body: { subscription: unknown },
+    @Body()
+    body: { subscription?: unknown; token?: string; deviceType?: string },
   ) {
-    return await this.pushService.unsubscribe(userId, body.subscription);
+    return await this.pushService.unsubscribe(userId, body);
   }
 
   @Get()

@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma.service';
 import { getJwtSecret } from '../../config/jwt';
 import { isCorsOriginAllowed } from '../../config/cors-origins';
 import { PresenceService } from '../../common/presence.service';
+import { PushService } from '../../common/push.service';
 
 interface CustomSocket extends Socket {
   data: {
@@ -25,8 +26,10 @@ interface CustomSocket extends Socket {
 type ActiveCall = {
   roomName: string;
   conversationId: string;
+  originalConversationId: string;
   participants: Set<string>;
   startedAt: Date;
+  isEscalated?: boolean;
 };
 
 type CallIncomingPayload = {
@@ -79,6 +82,7 @@ export class RealtimeGateway
     private jwtService: JwtService,
     private prisma: PrismaService,
     private presence: PresenceService,
+    private push: PushService,
   ) {}
 
   async handleConnection(client: CustomSocket) {
@@ -154,6 +158,24 @@ export class RealtimeGateway
           status: 'OFFLINE',
           lastSeen: lastSeen.toISOString(),
         });
+
+        // Clean up user from any active calls only when their final socket closes.
+        const callsToLeave: { roomName: string; conversationId: string }[] = [];
+        for (const call of this.activeCalls.values()) {
+          if (call.participants.has(userId)) {
+            callsToLeave.push({
+              roomName: call.roomName,
+              conversationId: call.conversationId,
+            });
+          }
+        }
+        for (const { roomName, conversationId } of callsToLeave) {
+          await this.leaveCall(userId, conversationId, {
+            postMessage: false,
+            notifyLeaver: false,
+            roomName,
+          });
+        }
       }
 
       this.logger.log(
@@ -402,19 +424,167 @@ export class RealtimeGateway
     conversationId: string,
   ): ActiveCall | undefined {
     for (const call of this.activeCalls.values()) {
-      if (call.conversationId === conversationId) return call;
+      if (
+        call.conversationId === conversationId ||
+        call.originalConversationId === conversationId
+      )
+        return call;
     }
     return undefined;
   }
 
-  private removeUserFromCall(userId: string, roomName?: string) {
-    const call = roomName ? this.activeCalls.get(roomName) : undefined;
-    if (!call) return undefined;
-    call.participants.delete(userId);
-    if (call.participants.size === 0) {
-      this.activeCalls.delete(call.roomName);
+  private deriveRoomName(conversationId: string): string {
+    return `veloce-call-${conversationId}`;
+  }
+
+  private async leaveCall(
+    userId: string,
+    conversationId: string,
+    options: {
+      postMessage?: boolean;
+      notifyLeaver?: boolean;
+      roomName?: string;
+      leaverName?: string;
+    },
+  ) {
+    const derivedRoom = this.deriveRoomName(conversationId);
+    let call = options.roomName
+      ? this.activeCalls.get(options.roomName)
+      : undefined;
+    if (!call) call = this.activeCalls.get(derivedRoom);
+    if (!call) call = this.getActiveCallByConversation(conversationId);
+
+    const effectiveConversationId = call?.conversationId ?? conversationId;
+    const payload: CallEndedPayload = {
+      conversationId: effectiveConversationId,
+      endedBy: userId,
+    };
+
+    if (!call) {
+      if (options.notifyLeaver) {
+        this.server.to(`user:${userId}`).emit('call.left', payload);
+      }
+      return;
     }
-    return call;
+
+    const wasParticipant = call.participants.has(userId);
+    if (wasParticipant) {
+      call.participants.delete(userId);
+    }
+
+    const remainingCount = call.participants.size;
+    const isLast = remainingCount <= 1;
+
+    if (isLast) {
+      this.activeCalls.delete(call.roomName);
+      if (options.postMessage && options.leaverName) {
+        await this.postCallMessage(
+          effectiveConversationId,
+          userId,
+          `📹 ${options.leaverName} ended the video call`,
+          'SYSTEM_CALL_END',
+        );
+      }
+      try {
+        const participants = await this.prisma.conversationParticipant.findMany(
+          {
+            where: { conversationId: effectiveConversationId },
+            select: { userId: true },
+          },
+        );
+        for (const { userId: pid } of participants) {
+          this.server.to(`user:${pid}`).emit('call.ended', payload);
+        }
+      } catch {
+        /* non-critical fallback */
+      }
+      const room = `conversation:${effectiveConversationId}`;
+      this.server.to(room).emit('call.ended', payload);
+    } else {
+      if (options.notifyLeaver) {
+        this.server.to(`user:${userId}`).emit('call.left', payload);
+      }
+    }
+
+    this.logger.log(
+      `[CALL END] ${userId} left call ${call.roomName} (${remainingCount} remaining)`,
+    );
+  }
+
+  private async checkAndEscalateCallIfNeeded(call: ActiveCall) {
+    if (!call || call.participants.size < 3 || call.isEscalated) return;
+    call.isEscalated = true;
+
+    try {
+      const currentConv = await this.prisma.conversation.findUnique({
+        where: { id: call.conversationId },
+        include: { group: true },
+      });
+
+      if (!currentConv || currentConv.type !== 'DIRECT') return;
+
+      const participantIds = Array.from(call.participants);
+      const profiles = await this.prisma.userProfile.findMany({
+        where: { userId: { in: participantIds } },
+        select: { userId: true, displayName: true },
+      });
+      const names = profiles.map((p) => p.displayName).filter(Boolean);
+      const groupName = `Group Call (${names.slice(0, 3).join(', ')}${names.length > 3 ? '...' : ''})`;
+
+      const groupConversation = await this.prisma.$transaction(async (tx) => {
+        const conv = await tx.conversation.create({
+          data: {
+            workspaceId: currentConv.workspaceId,
+            type: 'GROUP',
+          },
+        });
+
+        await tx.conversationParticipant.createMany({
+          data: participantIds.map((id) => ({
+            conversationId: conv.id,
+            userId: id,
+          })),
+        });
+
+        const group = await tx.group.create({
+          data: {
+            conversationId: conv.id,
+            name: groupName,
+            createdBy: participantIds[0],
+            spaceType: 'GROUP',
+          },
+        });
+
+        await tx.groupMember.createMany({
+          data: participantIds.map((id) => ({
+            conversationId: conv.id,
+            userId: id,
+            role: id === participantIds[0] ? 'OWNER' : 'MEMBER',
+          })),
+        });
+
+        return { ...conv, group };
+      });
+
+      call.conversationId = groupConversation.id;
+
+      for (const pid of participantIds) {
+        this.server.to(`user:${pid}`).emit('call.escalated', {
+          roomName: call.roomName,
+          conversationId: groupConversation.id,
+          conversationName: groupConversation.group.name,
+        });
+      }
+
+      await this.postCallMessage(
+        groupConversation.id,
+        participantIds[0],
+        `📹 Video call escalated to group chat with ${names.join(', ')}`,
+        'SYSTEM_CALL_START',
+      );
+    } catch (err) {
+      this.logger.error('Failed to escalate call to group conversation', err);
+    }
   }
 
   @SubscribeMessage('call.invite')
@@ -438,16 +608,27 @@ export class RealtimeGateway
       select: { type: true },
     });
 
-    const existing = this.activeCalls.get(data.roomName);
-    if (!existing) {
-      this.activeCalls.set(data.roomName, {
-        roomName: data.roomName,
+    const roomName = data.roomName || this.deriveRoomName(data.conversationId);
+    let call = this.activeCalls.get(roomName);
+    if (!call) {
+      // Fallback for escalated calls: the roomName may not match the
+      // conversationId any more, but the call is still active.
+      call = this.getActiveCallByConversation(data.conversationId);
+    }
+    let created = false;
+    if (!call) {
+      created = true;
+      call = {
+        roomName,
         conversationId: data.conversationId,
+        originalConversationId: data.conversationId,
         participants: new Set([userId]),
         startedAt: new Date(),
-      });
-    } else {
-      existing.participants.add(userId);
+      };
+      this.activeCalls.set(roomName, call);
+    }
+    if (!created && !call.participants.has(userId)) {
+      call.participants.add(userId);
     }
 
     const participants = await this.prisma.conversationParticipant.findMany({
@@ -457,7 +638,7 @@ export class RealtimeGateway
 
     const payload: CallIncomingPayload = {
       conversationId: data.conversationId,
-      roomName: data.roomName,
+      roomName: call.roomName,
       callerId: userId,
       callerName: data.callerName,
       conversationName: data.conversationName,
@@ -466,17 +647,33 @@ export class RealtimeGateway
         'DIRECT',
     };
 
+    const ringIds: string[] = [];
     for (const { userId: pid } of participants) {
       if (pid === userId) continue;
+      // Skip users already in the call so they don't get re-rung.
+      if (call.participants.has(pid)) continue;
       this.server.to(`user:${pid}`).emit('call.incoming', payload);
+      ringIds.push(pid);
+    }
+
+    // FCM/VAPID for backgrounded phones and closed browser tabs. Socket
+    // already covers live clients; extra push is how Flutter rings.
+    if (ringIds.length > 0) {
+      const where = data.conversationName ? ` in ${data.conversationName}` : '';
+      void this.push.sendToUsers(ringIds, {
+        title: 'Incoming call',
+        body: `${data.callerName} is calling${where}`,
+        url: `/calls?conversation=${data.conversationId}`,
+      });
     }
 
     // Only post a "started" transcript when this is a brand-new call.
-    if (!existing) {
+    if (created) {
+      const startMsg = 'started a video call';
       await this.postCallMessage(
         data.conversationId,
         userId,
-        `📹 ${data.callerName} started a video call`,
+        '\ud83d\udcf9 ' + data.callerName + ' ' + startMsg,
         'SYSTEM_CALL_START',
       );
     }
@@ -507,11 +704,15 @@ export class RealtimeGateway
 
     const declinerName = await this.getUserDisplayName(userId);
 
-    // Remove decliner from any active call in this conversation.
+    // If the decliner had already joined the call, clean them up and end the
+    // call for the remaining caller when it drops to a single participant.
     const call = this.getActiveCallByConversation(data.conversationId);
-    call?.participants.delete(userId);
-    if (call && call.participants.size === 0) {
-      this.activeCalls.delete(call.roomName);
+    if (call && call.participants.has(userId)) {
+      await this.leaveCall(userId, data.conversationId, {
+        postMessage: false,
+        notifyLeaver: false,
+        roomName: call.roomName,
+      });
     }
 
     // Post a system call-declined message so it stays in chat transcript history
@@ -583,17 +784,21 @@ export class RealtimeGateway
       throw new WsException('Invalid call target');
     }
 
-    let call = this.activeCalls.get(data.roomName);
+    const roomName = data.roomName || this.deriveRoomName(data.conversationId);
+    let call = this.activeCalls.get(roomName);
     if (!call) {
       call = {
-        roomName: data.roomName,
+        roomName,
         conversationId: data.conversationId,
+        originalConversationId: data.conversationId,
         participants: new Set([data.callerId, userId]),
         startedAt: new Date(),
       };
-      this.activeCalls.set(data.roomName, call);
+      this.activeCalls.set(roomName, call);
     } else {
-      call.participants.add(userId);
+      if (!call.participants.has(userId)) {
+        call.participants.add(userId);
+      }
     }
 
     const payload: CallAcceptedPayload = {
@@ -606,6 +811,8 @@ export class RealtimeGateway
     this.server.to(`user:${data.callerId}`).emit('call.accepted', payload);
     const room = `conversation:${data.conversationId}`;
     this.server.to(room).emit('call.accepted', payload);
+
+    void this.checkAndEscalateCallIfNeeded(call);
 
     return { status: 'accepted' };
   }
@@ -625,31 +832,43 @@ export class RealtimeGateway
 
     await this.ensureConversationParticipant(data.conversationId, userId);
 
-    let call = this.activeCalls.get(data.roomName);
+    const roomName = data.roomName || this.deriveRoomName(data.conversationId);
+    let call = this.activeCalls.get(roomName);
     if (!call) {
+      // Fallback for escalated calls.
+      call = this.getActiveCallByConversation(data.conversationId);
+    }
+    let created = false;
+    if (!call) {
+      created = true;
       call = {
-        roomName: data.roomName,
+        roomName,
         conversationId: data.conversationId,
+        originalConversationId: data.conversationId,
         participants: new Set([userId]),
         startedAt: new Date(),
       };
-      this.activeCalls.set(data.roomName, call);
+      this.activeCalls.set(roomName, call);
     } else {
-      call.participants.add(userId);
+      if (!call.participants.has(userId)) {
+        call.participants.add(userId);
+      }
     }
 
     const joinedPayload = {
-      conversationId: data.conversationId,
+      conversationId: call.conversationId,
       joinedBy: userId,
-      roomName: data.roomName,
+      roomName: call.roomName,
       conversationName: data.conversationName,
     };
 
-    const room = `conversation:${data.conversationId}`;
+    const room = `conversation:${call.conversationId}`;
     this.server.to(room).emit('call.joined', joinedPayload);
 
-    this.logger.log(`[CALL JOIN] ${userId} joined call ${data.roomName}`);
-    return { status: 'joined' };
+    void this.checkAndEscalateCallIfNeeded(call);
+
+    this.logger.log(`[CALL JOIN] ${userId} joined call ${call.roomName}`);
+    return { status: 'joined', roomName: call.roomName, conversationId: call.conversationId };
   }
 
   @SubscribeMessage('call.cancel')
@@ -663,26 +882,55 @@ export class RealtimeGateway
 
     await this.ensureConversationParticipant(data.conversationId, userId);
 
-    this.removeUserFromCall(userId, data.roomName);
-    const callerName =
-      data.callerName || (await this.getUserDisplayName(userId));
+    const roomName = data.roomName || this.deriveRoomName(data.conversationId);
+    let call = this.activeCalls.get(roomName);
+    if (!call) {
+      call = this.getActiveCallByConversation(data.conversationId);
+    }
 
-    await this.postCallMessage(
-      data.conversationId,
-      userId,
-      `📹 ${callerName} cancelled the call`,
-      'SYSTEM_CALL_END',
-    );
+    if (call && call.participants.has(userId)) {
+      call.participants.delete(userId);
+      if (call.participants.size <= 1) {
+        this.activeCalls.delete(call.roomName);
+      }
+    }
 
-    const cancelledPayload = {
-      conversationId: data.conversationId,
-      cancelledBy: userId,
-      roomName: data.roomName,
-    };
+    const remainingCount = call ? call.participants.size : 0;
+    const isEffectivelyEnded = remainingCount <= 1;
+    const callerName = await this.getUserDisplayName(userId);
 
-    this.server
-      .to(`conversation:${data.conversationId}`)
-      .emit('call.cancelled', cancelledPayload);
+    if (isEffectivelyEnded) {
+      await this.postCallMessage(
+        data.conversationId,
+        userId,
+        '\ud83d\udcf9 ' + callerName + ' cancelled the call',
+        'SYSTEM_CALL_END',
+      );
+
+      const cancelledPayload = {
+        conversationId: data.conversationId,
+        cancelledBy: userId,
+        roomName: call?.roomName || roomName,
+      };
+
+      try {
+        const participants = await this.prisma.conversationParticipant.findMany({
+          where: { conversationId: data.conversationId },
+          select: { userId: true },
+        });
+        for (const { userId: pid } of participants) {
+          this.server.to(`user:${pid}`).emit('call.cancelled', cancelledPayload);
+        }
+      } catch {
+        /* non-critical fallback */
+      }
+
+      this.server
+        .to(`conversation:${data.conversationId}`)
+        .emit('call.cancelled', cancelledPayload);
+    } else if (call && call.participants.has(userId) === false) {
+      // User was not in the call but it still continues — no-op.
+    }
 
     this.logger.log(`[CALL CANCEL] ${userId} cancelled call ${data.roomName}`);
     return { status: 'cancelled' };
@@ -698,43 +946,15 @@ export class RealtimeGateway
 
     await this.ensureConversationParticipant(data.conversationId, userId);
 
-    let call = data.roomName ? this.activeCalls.get(data.roomName) : undefined;
-    if (!call) call = this.getActiveCallByConversation(data.conversationId);
-
-    const room = `conversation:${data.conversationId}`;
-    const endedPayload: CallEndedPayload = {
-      conversationId: data.conversationId,
-      endedBy: userId,
-    };
-
-    // No tracked call: just close this user's UI.
-    if (!call) {
-      this.server.to(`user:${userId}`).emit('call.left', endedPayload);
-      return { status: 'ended' };
-    }
-
-    call.participants.delete(userId);
-    const isLast = call.participants.size === 0;
-    if (isLast) this.activeCalls.delete(call.roomName);
-
     const leaverName = await this.getUserDisplayName(userId);
 
-    if (isLast) {
-      await this.postCallMessage(
-        data.conversationId,
-        userId,
-        `📹 ${leaverName} ended the video call`,
-        'SYSTEM_CALL_END',
-      );
-      this.server.to(room).emit('call.ended', endedPayload);
-    } else {
-      // Call continues for the remaining participants.
-      this.server.to(`user:${userId}`).emit('call.left', endedPayload);
-    }
+    await this.leaveCall(userId, data.conversationId, {
+      postMessage: true,
+      notifyLeaver: true,
+      roomName: data.roomName,
+      leaverName,
+    });
 
-    this.logger.log(
-      `[CALL END] ${userId} left call ${call.roomName} (${call.participants.size} remaining)`,
-    );
     return { status: 'ended' };
   }
 
