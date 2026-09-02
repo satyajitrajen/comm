@@ -189,7 +189,11 @@ function getMonthGridDays(year: number, month: number): Date[] {
   startDate.setDate(startDate.getDate() - startDay);
   startDate.setHours(0, 0, 0, 0);
 
-  return Array.from({ length: 35 }, (_, i) => {
+  const lastDay = new Date(year, month + 1, 0);
+  const totalDaysNeeded = startDay + lastDay.getDate();
+  const count = totalDaysNeeded > 35 ? 42 : 35;
+
+  return Array.from({ length: count }, (_, i) => {
     const d = new Date(startDate);
     d.setDate(startDate.getDate() + i);
     return d;
@@ -868,9 +872,9 @@ export default function CalendarPage() {
         </header>
 
         {/* CALENDAR BODY */}
-        <main className="flex-1 min-h-0 overflow-y-auto bg-slate-50">
+        <main className={`flex-1 min-h-0 bg-slate-50 ${view === 'month' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
           {error && (
-            <div className="m-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 font-semibold">
+            <div className="m-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 font-semibold shrink-0">
               <span>{error}</span>
               <button onClick={loadCalendar} className="hover:underline font-bold">
                 Retry
@@ -887,21 +891,21 @@ export default function CalendarPage() {
             /* ========================================================
                1. MONTH VIEW (TEAMS/OUTLOOK LIGHT GRID)
                ======================================================== */
-            <div className="flex flex-col h-full select-none bg-white">
+            <div className="flex flex-col h-full flex-1 min-h-0 select-none bg-white">
               {/* Day Headers (Sunday to Saturday) */}
-              <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/70 text-center">
+              <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/70 text-center shrink-0">
                 {daysFull.map((d, idx) => (
                   <div
                     key={idx}
-                    className="py-2.5 text-xs font-bold text-slate-600 border-r border-slate-200 last:border-r-0"
+                    className="py-2 text-xs font-bold text-slate-600 border-r border-slate-200 last:border-r-0"
                   >
                     {d}
                   </div>
                 ))}
               </div>
 
-              {/* 5x7 Month Grid Cells */}
-              <div className="grid grid-cols-7 grid-rows-5 flex-1 min-h-[640px] bg-white">
+              {/* 5x7 or 6x7 Month Grid Cells - fits 100% in viewport without scroll */}
+              <div className={`grid grid-cols-7 ${monthGridDays.length > 35 ? 'grid-rows-6' : 'grid-rows-5'} flex-1 h-full min-h-0 bg-white`}>
                 {monthGridDays.map((dateObj, idx) => {
                   const isCurrentMonth = dateObj.getMonth() === month;
                   const isTodayDate = isSameDay(dateObj, today);
@@ -919,7 +923,7 @@ export default function CalendarPage() {
                     <div
                       key={idx}
                       onClick={() => setActiveDate(new Date(dateObj))}
-                      className={`min-h-[115px] border-b border-r border-slate-200 p-2 flex flex-col justify-between transition cursor-pointer group ${
+                      className={`h-full min-h-0 border-b border-r border-slate-200 p-1.5 flex flex-col justify-between overflow-hidden transition cursor-pointer group ${
                         isSelected
                           ? 'ring-2 ring-inset ring-blue-600 bg-blue-50/40'
                           : isTodayDate
@@ -930,10 +934,10 @@ export default function CalendarPage() {
                       }`}
                     >
                       {/* Top Day Number */}
-                      <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center justify-between mb-1 shrink-0">
                         <div className="flex items-center gap-1">
                           <span
-                            className={`flex h-6 items-center justify-center rounded-full px-1.5 text-xs font-bold transition ${
+                            className={`flex h-5 items-center justify-center rounded-full px-1.5 text-xs font-bold transition ${
                               isTodayDate
                                 ? 'bg-blue-700 text-white shadow-xs'
                                 : isCurrentMonth
@@ -951,7 +955,7 @@ export default function CalendarPage() {
                             e.stopPropagation();
                             openCreateModal(dateObj.toISOString().slice(0, 10));
                           }}
-                          className="opacity-0 group-hover:opacity-100 rounded-md p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition"
+                          className="opacity-0 group-hover:opacity-100 rounded-md p-0.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition"
                           title="Add event"
                         >
                           <Plus className="h-3 w-3" />
@@ -959,22 +963,22 @@ export default function CalendarPage() {
                       </div>
 
                       {/* Event Cards inside cell */}
-                      <div className="space-y-1 overflow-hidden flex-1">
-                        {cellEvents.slice(0, 3).map((item) => (
+                      <div className="space-y-0.5 overflow-hidden flex-1 min-h-0">
+                        {cellEvents.slice(0, 2).map((item) => (
                           <div
                             key={item.id}
                             onClick={(e) => {
                               e.stopPropagation();
                               openEditModal(item);
                             }}
-                            className="group/item flex items-center justify-between gap-1 rounded-md bg-indigo-50/90 hover:bg-indigo-100 border-l-2 border-indigo-600 px-2 py-1 text-xs text-indigo-950 shadow-2xs transition"
+                            className="group/item flex items-center justify-between gap-1 rounded bg-indigo-50/90 hover:bg-indigo-100 border-l-2 border-indigo-600 px-1.5 py-0.5 text-[11px] text-indigo-950 shadow-2xs transition"
                             title={`${item.title} (${new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`}
                           >
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span className="text-[10px] text-indigo-700 font-semibold shrink-0">
+                            <div className="flex items-center gap-1 min-w-0 flex-1">
+                              <span className="text-[9px] text-indigo-700 font-semibold shrink-0">
                                 {new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
-                              <span className="truncate font-semibold text-[11px] text-slate-900">
+                              <span className="truncate font-semibold text-[10px] text-slate-900">
                                 {item.title}
                               </span>
                             </div>
@@ -985,18 +989,18 @@ export default function CalendarPage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="text-indigo-600 hover:text-indigo-900 p-0.5"
+                                className="text-indigo-600 hover:text-indigo-900 p-0.5 shrink-0"
                                 title="Join Meeting"
                               >
-                                <Video className="h-3 w-3" />
+                                <Video className="h-2.5 w-2.5" />
                               </a>
                             )}
                           </div>
                         ))}
 
-                        {cellEvents.length > 3 && (
-                          <div className="text-[10px] font-bold text-blue-700 pl-1">
-                            +{cellEvents.length - 3} more
+                        {cellEvents.length > 2 && (
+                          <div className="text-[9px] font-bold text-blue-700 pl-0.5 leading-none">
+                            +{cellEvents.length - 2} more
                           </div>
                         )}
                       </div>
