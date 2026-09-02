@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import {
   CAPABILITY_KEYS,
-  DEFAULT_ROLE_PERMISSIONS,
   EffectivePermissions,
   MODULE_KEYS,
   ROLE_PERMISSIONS_SETTING_KEY,
@@ -10,7 +9,6 @@ import {
   RolePermissionEntry,
   RolePermissionsMap,
   WORKSPACE_ROLES,
-  WorkspaceRole,
   buildDefaultRolePermissions,
   resolveEffectivePermissions,
 } from './permissions.constants';

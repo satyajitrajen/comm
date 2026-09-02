@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
 import { useCallStore } from '../store/useCallStore';
 import type { CallConversationType } from '../lib/callRoom';
-import { resolveServiceBaseUrl, sendDesktopNotification } from '../lib/desktopRuntime';
+import { sendDesktopNotification } from '../lib/desktopRuntime';
+import { createAppSocket } from '../lib/socket';
 
 export type IncomingCall = {
   conversationId: string;
@@ -25,7 +26,9 @@ export function useCallSignaling(activeConversationId?: string) {
   const activeConversationIdRef = useRef<string | undefined>(activeConversationId);
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
 
-  activeConversationIdRef.current = activeConversationId;
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   /** Close the local call/outgoing state only when it belongs to the event's conversation. */
   const closeCallIfMatching = (conversationId: string) => {
@@ -38,12 +41,8 @@ export function useCallSignaling(activeConversationId?: string) {
 
   // One long-lived socket per hook instance (do not reconnect when conversation changes).
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
-    if (!token) return;
-
-    const socketUrl = resolveServiceBaseUrl();
-
-    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+    const socket = createAppSocket();
+    if (!socket) return;
     socketRef.current = socket;
 
     const joinIfNeeded = () => {

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
+import { Prisma } from '@prisma/client';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { extractMentionedUserIds } from '../../config/mentions';
@@ -702,6 +703,10 @@ export class MessagesService {
   }
 
   async pinMessage(userId: string, messageId: string, conversationId: string) {
+    const message = await this.getMessageForParticipant(userId, messageId);
+    if (message.conversationId !== conversationId) {
+      throw new NotFoundException('Message not found in this conversation');
+    }
     await this.assertConversationParticipant(conversationId, userId);
     const pinned = await this.prisma.pinnedMessage.upsert({
       where: { conversationId_messageId: { conversationId, messageId } },
@@ -721,6 +726,10 @@ export class MessagesService {
     messageId: string,
     conversationId: string,
   ) {
+    const message = await this.getMessageForParticipant(userId, messageId);
+    if (message.conversationId !== conversationId) {
+      throw new NotFoundException('Message not found in this conversation');
+    }
     await this.assertConversationParticipant(conversationId, userId);
     await this.prisma.pinnedMessage
       .delete({
@@ -785,11 +794,14 @@ export class MessagesService {
       before?: string;
     },
   ) {
-    const participantRecords = await this.prisma.conversationParticipant.findMany({
-      where: { userId },
-      select: { conversationId: true },
-    });
-    const allowedConversationIds = participantRecords.map((p) => p.conversationId);
+    const participantRecords =
+      await this.prisma.conversationParticipant.findMany({
+        where: { userId },
+        select: { conversationId: true },
+      });
+    const allowedConversationIds = participantRecords.map(
+      (p) => p.conversationId,
+    );
 
     if (allowedConversationIds.length === 0) {
       return { messages: [], hasMore: false, nextCursor: null };
@@ -805,7 +817,7 @@ export class MessagesService {
 
     const takeLimit = Math.min(Math.max(params.limit || 30, 1), 100);
 
-    const where: any = {
+    const where: Prisma.MessageWhereInput = {
       conversationId: { in: targetConversationIds },
       messageType: {
         in: [

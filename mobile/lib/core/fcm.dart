@@ -1,8 +1,29 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'api_client.dart';
 import 'firebase_bootstrap.dart';
 import 'push_routes.dart';
+
+const _pushChannelId = 'teamtime_push';
+final _localNotifications = FlutterLocalNotificationsPlugin();
+
+Future<void> _ensureAndroidPushChannel() async {
+  try {
+    final android = _localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await android?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _pushChannelId,
+        'TeamTime push',
+        description: 'Calls, messages and workspace alerts',
+        importance: Importance.high,
+      ),
+    );
+  } catch (e) {
+    debugPrint('Notification channel skipped: $e');
+  }
+}
 
 String? _pendingPushRoute;
 bool _routingAttached = false;
@@ -50,6 +71,7 @@ Future<void> attachPushRouting(void Function(String route) go) async {
 
 Future<void> registerAndroidPush(ApiClient api) async {
   if (!FirebaseBootstrap.ready) return;
+  await _ensureAndroidPushChannel();
   try {
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission();

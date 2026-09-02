@@ -26,6 +26,7 @@ Do not record secrets, credentials, access tokens, or sensitive personal data.
 - Server FCM: service account `teamtime-fcm` on `communication-5f5bd`; local key at gitignored `backend/.secrets/firebase-admin.json`; env `FIREBASE_SERVICE_ACCOUNT_PATH`.
 - Web FCM: Firebase web app on same project; Next enrolls after login (`NEXT_PUBLIC_FIREBASE_*` in gitignored `.env.local`). Electron skipped (native toasts). VAPID remains fallback.
 - Flutter FCM: token on login/hydrate + refresh; background handler; notification tap routing.
+- 2026-08-29 multi-agent review fixes: mobile call events corrected to past tense (`call.accepted/declined/ended/cancelled`), `callerName` added to `call.invite`, single app-scoped socket provider with reconnect banner + fresh-token reconnects, single-flight refresh with `forceSignOut` wiring, router-level `allowedNavKeys` gating (covers push deep links), cleartext disabled in release (debug manifest keeps emulator/LAN), `teamtime_push` channel created via `flutter_local_notifications`, mandatory refresh-on-401/logout-clear unit tests added, unused plugins removed.
 
 ## Important context
 

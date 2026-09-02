@@ -110,9 +110,7 @@ export default function AnnouncementsPage() {
     if (selectedId) {
       void loadSpaceHistory(selectedId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
-
   const selectedSpace = spaces.find((space) => space.conversationId === selectedId) || null;
   const selectedMessages = useMemo(
     () => [...(messagesBySpace[selectedId] || [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),

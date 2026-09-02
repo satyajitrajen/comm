@@ -76,6 +76,8 @@ export interface MessageBubbleProps {
   authorAvatarUrl?: string | null;
   attachmentsNode?: React.ReactNode;
   canEdit?: boolean;
+  /** Shared ticking timestamp so canEditMessage expires without per-bubble intervals. */
+  now?: number;
   isStarred?: boolean;
   isPinned?: boolean;
   /** Conversations available for forward picker [{id, name}] */
@@ -263,7 +265,7 @@ function TaskCard({ task, onAction }: TaskCardProps) {
                     const name = assignee.user?.profile?.displayName || 'Member';
                     return (
                       <span
-                        key={idx}
+                        key={`${name}-${idx}`}
                         title={name}
                         className={`flex h-4 w-4 items-center justify-center rounded-full border border-white text-[8px] font-extrabold ${avatarAccent(name)}`}
                       >
@@ -296,6 +298,19 @@ export function useClickOutside(ref: React.RefObject<HTMLElement | null>, handle
   }, [ref, handler]);
 }
 
+/**
+ * One shared ticking timestamp for a message list. Parent calls this once and
+ * passes the value down, so edit windows expire without an interval per bubble.
+ */
+export function useNow(intervalMs = 10_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
+
 export function MessageBubble({
   id,
   content,
@@ -311,6 +326,7 @@ export function MessageBubble({
   authorAvatarUrl,
   attachmentsNode,
   canEdit = false,
+  now,
   isStarred = false,
   isPinned = false,
   availableConversations = [],
@@ -328,36 +344,12 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const [loadedPreviews, setLoadedPreviews] = useState<Set<string>>(new Set());
-  const [canEditMessage, setCanEditMessage] = useState(() => {
-    if (!canEdit) return false;
-    if (!createdAt) return true;
-    const elapsed = Date.now() - new Date(createdAt).getTime();
-    return elapsed < 5 * 60 * 1000;
-  });
-
-  useEffect(() => {
-    let active = true;
-    const checkWindow = () => {
-      if (!active) return;
-      if (!canEdit) {
-        setCanEditMessage(false);
-        return;
-      }
-      if (!createdAt) {
-        setCanEditMessage(true);
-        return;
-      }
-      const elapsed = Date.now() - new Date(createdAt).getTime();
-      setCanEditMessage(elapsed < 5 * 60 * 1000);
-    };
-    const t = setTimeout(checkWindow, 0);
-    const timer = setInterval(checkWindow, 10000);
-    return () => {
-      active = false;
-      clearTimeout(t);
-      clearInterval(timer);
-    };
-  }, [canEdit, createdAt]);
+  // Derived from the shared `now` prop instead of a per-bubble interval; the
+  // lazy state fallback covers callers that do not pass one.
+  const [fallbackNow] = useState(() => Date.now());
+  const canEditMessage =
+    canEdit &&
+    (!createdAt || (now ?? fallbackNow) - new Date(createdAt).getTime() < 5 * 60 * 1000);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -851,7 +843,6 @@ interface FloatingBarProps {
 
 function FloatingBar({
   articleRef,
-  isDm,
   isOwn,
   mainActions,
   moreMenuItems,

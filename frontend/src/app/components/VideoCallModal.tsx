@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo, type PointerEvent as ReactPointerEvent } from 'react';
-import { io } from 'socket.io-client';
-import { Maximize2, Minimize2, PhoneOff, PhoneCall, UserPlus, Search, Check, X, MessageSquare, Send } from 'lucide-react';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Minimize2, PhoneOff, PhoneCall, UserPlus, Search, X, MessageSquare, Send } from 'lucide-react';
 import Portal from './Portal';
 import { usersAPI, chatsAPI, messagesAPI } from '../../services/api';
-import { resolveServiceBaseUrl } from '../../lib/desktopRuntime';
+import { createAppSocket } from '../../lib/socket';
 import { avatarAccent, initials } from '../(app)/_utils';
 import {
   isDocumentPipSupported,
@@ -20,9 +19,22 @@ import {
 import { useCallStore } from '../../store/useCallStore';
 import type { CallView } from '../../store/useCallStore';
 
+type PipSurface = 'inline' | 'document';
+
+/** Minimal shape of the Jitsi Meet External API object we use. */
+type JitsiApi = {
+  executeCommand: (command: string, ...args: unknown[]) => void;
+  addListener: (event: string, handler: () => void) => void;
+  dispose: () => void;
+  getIFrame?: () => HTMLIFrameElement | null | undefined;
+};
+
 declare global {
   interface Window {
-    JitsiMeetExternalAPI: any;
+    JitsiMeetExternalAPI: new (
+      domain: string,
+      options: Record<string, unknown>,
+    ) => JitsiApi;
   }
 }
 
@@ -60,8 +72,6 @@ type VideoCallModalProps = {
   onEnd: () => void;
 };
 
-type PipSurface = 'inline' | 'document';
-
 export function VideoCallModal({
   conversationId,
   roomName,
@@ -73,21 +83,19 @@ export function VideoCallModal({
   onEnd,
 }: VideoCallModalProps) {
   const jitsiContainerRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<any>(null);
+  const apiRef = useRef<JitsiApi | null>(null);
   const pipShellRef = useRef<HTMLDivElement>(null);
   const portalHostRef = useRef<HTMLDivElement>(null);
-  const dragOffsetRef = useRef({ x: 0, y: 0 });
   const [error, setError] = useState('');
   const [isReady, setIsReady] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [pipSurface, setPipSurface] = useState<PipSurface>('inline');
-  const [duration, setDuration] = useState(0);
 
   const storeConversationId = useCallStore((state) => state.activeCall?.conversationId);
   const activeConversationId = conversationId || storeConversationId || '';
 
   // In-Call Chat State
   const [showInCallChat, setShowInCallChat] = useState(false);
+  const showInCallChatRef = useRef(showInCallChat);
   const [inCallMessages, setInCallMessages] = useState<InCallMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -133,11 +141,8 @@ export function VideoCallModal({
   // Real-time live messaging in call
   useEffect(() => {
     if (!activeConversationId) return;
-    const socketUrl = resolveServiceBaseUrl();
-    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
-    if (!token) return;
-
-    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+    const socket = createAppSocket();
+    if (!socket) return;
 
     socket.emit('room.join', { conversationId: activeConversationId });
 
@@ -147,7 +152,7 @@ export function VideoCallModal({
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
-        if (!showInCallChat && msg.senderId !== currentUserId) {
+        if (!showInCallChatRef.current && msg.senderId !== currentUserId) {
           setUnreadChatCount((count) => count + 1);
         }
       }
@@ -156,7 +161,11 @@ export function VideoCallModal({
     return () => {
       socket.disconnect();
     };
-  }, [activeConversationId, showInCallChat, currentUserId]);
+  }, [activeConversationId, currentUserId]);
+
+  useEffect(() => {
+    showInCallChatRef.current = showInCallChat;
+  }, [showInCallChat]);
 
   // Auto-scroll chat on new messages
   useEffect(() => {
@@ -223,15 +232,29 @@ export function VideoCallModal({
   }
 
   const pipPosition = useCallStore((state) => state.activeCall?.pipPosition);
-  const setPipPosition = useCallStore((state) => state.setPipPosition);
 
   const onMinimizeRef = useRef(onMinimize);
   const onExpandRef = useRef(onExpand);
   const onEndRef = useRef(onEnd);
   const hasEndedRef = useRef(false);
-  onMinimizeRef.current = onMinimize;
-  onExpandRef.current = onExpand;
-  onEndRef.current = onEnd;
+  useEffect(() => {
+    onMinimizeRef.current = onMinimize;
+    onExpandRef.current = onExpand;
+    onEndRef.current = onEnd;
+  }, [onMinimize, onExpand, onEnd]);
+
+  function resizeJitsi() {
+    const api = apiRef.current;
+    if (!api) return;
+
+    window.requestAnimationFrame(() => {
+      const iframe = api.getIFrame?.();
+      if (iframe) {
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+      }
+    });
+  }
 
   const resolvedName = (() => {
     if (userName) return userName;
@@ -246,20 +269,6 @@ export function VideoCallModal({
     }
     return 'Veloce User';
   })();
-
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (isReady) {
-      interval = setInterval(() => setDuration((d) => d + 1), 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isReady]);
-
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
 
   useEffect(() => {
     return () => {
@@ -407,19 +416,6 @@ export function VideoCallModal({
     };
   }, [isPip]);
 
-  function resizeJitsi() {
-    const api = apiRef.current;
-    if (!api) return;
-
-    window.requestAnimationFrame(() => {
-      const iframe = api.getIFrame?.();
-      if (iframe) {
-        iframe.style.width = '100%';
-        iframe.style.height = '100%';
-      }
-    });
-  }
-
   useEffect(() => {
     resizeJitsi();
   }, [view, pipSurface, showInCallChat]);
@@ -440,54 +436,10 @@ export function VideoCallModal({
     return () => window.removeEventListener('resize', handleResize);
   }, [isPip, pipSurface, pipPosition]);
 
-  function handleExpand() {
-    restoreFromDocumentPip();
-    setPipSurface('inline');
-    onExpand();
-  }
-
   function handleEnd() {
     restoreFromDocumentPip();
     setPipSurface('inline');
     onEnd();
-  }
-
-  function handlePipPointerDown(event: ReactPointerEvent<HTMLElement>) {
-    if (!isPip || pipSurface !== 'inline' || !pipPosition) return;
-    if ((event.target as HTMLElement).closest('button')) return;
-
-    const shell = pipShellRef.current;
-    if (!shell) return;
-
-    dragOffsetRef.current = {
-      x: event.clientX - pipPosition.x,
-      y: event.clientY - pipPosition.y,
-    };
-
-    setIsDragging(true);
-    shell.setPointerCapture(event.pointerId);
-
-    function handlePointerMove(moveEvent: PointerEvent) {
-      const clamped = clampPipPosition(
-        moveEvent.clientX - dragOffsetRef.current.x,
-        moveEvent.clientY - dragOffsetRef.current.y,
-      );
-      setPipPosition(clamped.x, clamped.y);
-    }
-
-    const shellEl = shell;
-
-    function endDrag(upEvent: PointerEvent) {
-      setIsDragging(false);
-      shellEl.releasePointerCapture(upEvent.pointerId);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', endDrag);
-      window.removeEventListener('pointercancel', endDrag);
-    }
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', endDrag);
-    window.addEventListener('pointercancel', endDrag);
   }
 
   const outerPipClass =

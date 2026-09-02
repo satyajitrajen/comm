@@ -1,0 +1,11 @@
+# Environment
+.env
+.env.*
+
+# Build outputs
+dist/
+dist-electron/
+node_modules/
+
+# Bundled UI snapshot (built from frontend at package time)
+resources/ui/

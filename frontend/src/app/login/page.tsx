@@ -45,6 +45,14 @@ function persistSession(session: AuthResponse) {
   localStorage.setItem('veloce_user', JSON.stringify(session.user));
 }
 
+/** Only same-origin relative paths may be used as a post-login destination. */
+function safeNextPath(next: string | null): string {
+  if (!next) return '/home';
+  if (!next.startsWith('/') || next.startsWith('//')) return '/home';
+  if (next.includes('://') || /^[a-z][a-z0-9+.-]*:/i.test(next)) return '/home';
+  return next;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<'password' | 'otp'>('password');
@@ -81,7 +89,7 @@ export default function LoginPage() {
       }
       persistSession(result as AuthResponse);
       const params = new URLSearchParams(window.location.search);
-      router.replace(params.get('next') || '/home');
+      router.replace(safeNextPath(params.get('next')));
     } catch {
       setError('Check your email and password, then try again.');
     } finally {
@@ -101,7 +109,7 @@ export default function LoginPage() {
       });
       persistSession(session as AuthResponse);
       const params = new URLSearchParams(window.location.search);
-      router.replace(params.get('next') || '/home');
+      router.replace(safeNextPath(params.get('next')));
     } catch {
       setError('That code is incorrect or has expired. Try again or go back and sign in again.');
     } finally {

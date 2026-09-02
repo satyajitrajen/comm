@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ExternalLink } from 'lucide-react';
 
 interface LinkPreviewData {
@@ -14,6 +14,11 @@ export default function LinkPreview({ url, onLoadSuccess, isOwn }: { url: string
   const [data, setData] = useState<LinkPreviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const onLoadSuccessRef = useRef(onLoadSuccess);
+
+  useEffect(() => {
+    onLoadSuccessRef.current = onLoadSuccess;
+  }, [onLoadSuccess]);
 
   useEffect(() => {
     let isMounted = true;
@@ -28,10 +33,10 @@ export default function LinkPreview({ url, onLoadSuccess, isOwn }: { url: string
           setData(json);
           setLoading(false);
           if (json.title || json.description || json.image) {
-            onLoadSuccess?.();
+            onLoadSuccessRef.current?.();
           }
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError(true);
           setLoading(false);

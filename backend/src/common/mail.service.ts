@@ -114,7 +114,10 @@ export class MailService {
 
   /** Helper to format dates to UTC iCalendar format (YYYYMMDDTHHMMSSZ) */
   private formatIcsDate(date: Date): string {
-    return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    return date
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\.\d{3}/, '');
   }
 
   /** Generates RFC 5545 compliant iCalendar (.ics) string */
@@ -259,9 +262,10 @@ export class MailService {
       return true;
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'unknown error';
-      this.logger.error(`[MAIL] Failed to send calendar invite to ${to}: ${reason}`);
+      this.logger.error(
+        `[MAIL] Failed to send calendar invite to ${to}: ${reason}`,
+      );
       return false;
     }
   }
 }
-

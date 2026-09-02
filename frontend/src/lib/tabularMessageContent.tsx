@@ -51,13 +51,13 @@ export function FormattedMessageContent({
         <table className="min-w-full border-collapse text-sm">
           <tbody>
             {rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
+              <tr key={`${rowIndex}:${row[0] ?? ''}`}>
                 {Array.from({ length: colCount }, (_, colIndex) => {
                   const cell = row[colIndex] ?? '';
                   const isHeader = rowIndex === 0;
                   return (
                     <td
-                      key={colIndex}
+                      key={`${colIndex}:${cell}`}
                       className={`border px-2 py-1 align-top whitespace-pre-wrap ${
                         isHeader ? headerClass : bodyClass
                       }`}

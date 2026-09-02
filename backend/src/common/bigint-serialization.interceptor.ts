@@ -16,7 +16,7 @@ export class BigIntSerializationInterceptor implements NestInterceptor {
     next: CallHandler,
   ): Observable<unknown> {
     return next.handle().pipe(
-      map((data) => {
+      map((data: unknown) => {
         if (data instanceof StreamableFile) {
           return data;
         }

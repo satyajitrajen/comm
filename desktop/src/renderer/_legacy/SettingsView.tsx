@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Server, Monitor, Save, Sun } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { initializeSocket } from '../socket/client';
 
 export const SettingsView: React.FC = () => {
   const { backendUrl, setBackendUrl } = useAppStore();
@@ -14,7 +13,6 @@ export const SettingsView: React.FC = () => {
   const handleSaveBackendUrl = (e: React.FormEvent) => {
     e.preventDefault();
     setBackendUrl(urlInput.trim());
-    initializeSocket();
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2500);
   };

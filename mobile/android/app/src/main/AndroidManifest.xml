@@ -10,7 +10,7 @@
         android:label="TeamTime"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         tools:replace="android:label">
         <activity
             android:name=".MainActivity"

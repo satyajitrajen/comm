@@ -6,6 +6,7 @@ import { KeyRound, RefreshCw, Save, X } from 'lucide-react';
 import { authAPI } from '../../services/api';
 import { useChatStore } from '../../store/useChatStore';
 import { unregisterBrowserPush } from '../../lib/push';
+import { resetBrowserPushEnrollment } from '../../hooks/useBrowserPush';
 import PasswordInput from './PasswordInput';
 import Portal from './Portal';
 
@@ -78,6 +79,9 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
       setConfirmPassword('');
       setPasswordSuccess('Password updated — please sign in again.');
       await unregisterBrowserPush();
+      // Push was just unregistered; re-arm enrolment so the next session
+      // re-subscribes instead of staying silent forever.
+      resetBrowserPushEnrollment();
       localStorage.removeItem('veloce_token');
       localStorage.removeItem('veloce_refresh');
       localStorage.removeItem('veloce_session');

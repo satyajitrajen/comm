@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
 import {
   PhoneCall,
   Video,
@@ -11,7 +10,7 @@ import {
   Search,
 } from 'lucide-react';
 import { callsAPI, CallHistoryMessage, chatsAPI, usersAPI } from '../../../services/api';
-import { resolveServiceBaseUrl } from '../../../lib/desktopRuntime';
+import { createAppSocket } from '../../../lib/socket';
 import { avatarAccent, initials, timeAgo } from '../_utils';
 import { useCallStore } from '../../../store/useCallStore';
 import { callRoomName } from '../../../lib/callRoom';
@@ -134,11 +133,8 @@ export default function CallsPage() {
 
   // Listen for live call events from WebSocket
   useEffect(() => {
-    const socketUrl = resolveServiceBaseUrl();
-    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
-    if (!token) return;
-
-    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+    const socket = createAppSocket();
+    if (!socket) return;
 
     socket.on('message.sent', (message: CallHistoryMessage) => {
       if (

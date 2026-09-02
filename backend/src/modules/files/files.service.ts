@@ -9,6 +9,7 @@ import { createReadStream } from 'fs';
 import { access, mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
+import type { IncomingMessage } from 'http';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { v2 as cloudinary } from 'cloudinary';
@@ -56,7 +57,7 @@ function formatStorageError(err: unknown): string {
     try {
       return JSON.stringify(err);
     } catch {
-      return String(err);
+      return 'Unknown storage error (unserializable error object)';
     }
   }
   return String(err);
@@ -87,6 +88,8 @@ export class FilesService {
   }
 
   private sanitizeFilename(filename: string) {
+    // Strip path separators, reserved characters, and control characters.
+    // eslint-disable-next-line no-control-regex -- control chars are intentionally matched
     return filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').slice(0, 160);
   }
 
@@ -291,34 +294,45 @@ export class FilesService {
         // Wrap upload_stream in a timeout so a broken Cloudinary config fails
         // quickly and we immediately fall back to local storage.
         const CLOUDINARY_TIMEOUT_MS = 8_000;
-        const result = await Promise.race([
-          new Promise<any>((resolve, reject) => {
+        type CloudinaryUploadResult = { secure_url?: string };
+        const result = await new Promise<CloudinaryUploadResult>(
+          (resolve, reject) => {
+            const timer = setTimeout(() => {
+              uploadStream.destroy();
+              reject(
+                new Error(
+                  `Cloudinary upload timed out after ${CLOUDINARY_TIMEOUT_MS}ms`,
+                ),
+              );
+            }, CLOUDINARY_TIMEOUT_MS);
+            const finish = <T>(value: T, failure: unknown) => {
+              clearTimeout(timer);
+              if (failure) {
+                reject(
+                  failure instanceof Error
+                    ? failure
+                    : new Error(formatStorageError(failure)),
+                );
+                return;
+              }
+              resolve(value as CloudinaryUploadResult);
+            };
             const uploadStream = cloudinary.uploader.upload_stream(
               {
                 resource_type: 'auto',
                 folder: workspaceUser.workspaceId,
                 public_id: randomUUID(),
               },
-              (error, result) => {
-                if (error) return reject(error);
-                resolve(result);
-              },
+              (error, result) => finish(result, error),
             );
             uploadStream.end(file.buffer);
-          }),
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `Cloudinary upload timed out after ${CLOUDINARY_TIMEOUT_MS}ms`,
-                  ),
-                ),
-              CLOUDINARY_TIMEOUT_MS,
-            ),
-          ),
-        ]);
-        storageKey = result.secure_url;
+          },
+        );
+        const secureUrl = result.secure_url;
+        if (!secureUrl) {
+          throw new Error('Cloudinary upload returned no secure_url');
+        }
+        storageKey = secureUrl;
         storageProvider = 'CLOUDINARY';
       } catch (err) {
         this.logger.warn(
@@ -385,6 +399,26 @@ export class FilesService {
     return this.serializeFile(createdFile);
   }
 
+  /** Opens an HTTPS stream for a remotely stored (Cloudinary) file object. */
+  private openRemoteStream(url: string): Promise<IncomingMessage> {
+    return new Promise<IncomingMessage>((resolve, reject) => {
+      https
+        .get(url, (res) => {
+          if (res.statusCode !== 200) {
+            res.resume();
+            reject(
+              new Error(
+                `Failed to download from Cloudinary: ${res.statusCode}`,
+              ),
+            );
+          } else {
+            resolve(res);
+          }
+        })
+        .on('error', reject);
+    });
+  }
+
   async getDownload(userId: string, fileId: string) {
     const workspaceUser = await this.getActiveWorkspace(userId);
     await this.assertFileAccess(userId, workspaceUser.workspaceId, fileId);
@@ -403,22 +437,7 @@ export class FilesService {
 
     if (file.storageProvider === 'CLOUDINARY') {
       try {
-        const stream = await new Promise<any>((resolve, reject) => {
-          https
-            .get(file.storageKey, (res) => {
-              if (res.statusCode !== 200) {
-                reject(
-                  new Error(
-                    `Failed to download from Cloudinary: ${res.statusCode}`,
-                  ),
-                );
-              } else {
-                resolve(res);
-              }
-            })
-            .on('error', reject);
-        });
-
+        const stream = await this.openRemoteStream(file.storageKey);
         return {
           stream,
           filename: file.filename,
@@ -451,11 +470,27 @@ export class FilesService {
     };
   }
 
-  async getFileForView(fileId: string) {
+  /**
+   * Streams a file for inline viewing.
+   *
+   * - Authenticated users may view any non-deleted file inside their active
+   *   workspace (inline previews and avatars).
+   * - Anonymous requests are limited to image files only; this keeps
+   *   `<img>`-based avatar URLs working while preventing unauthenticated
+   *   streaming of documents and other private file types.
+   */
+  async getFileForView(fileId: string, userId?: string) {
+    let workspaceId: string | undefined;
+    if (userId) {
+      const workspaceUser = await this.getActiveWorkspace(userId);
+      workspaceId = workspaceUser.workspaceId;
+    }
+
     const file = await this.prisma.file.findFirst({
       where: {
         id: fileId,
         isDeleted: false,
+        ...(workspaceId ? { workspaceId } : {}),
       },
     });
 
@@ -463,24 +498,13 @@ export class FilesService {
       throw new NotFoundException('File not found');
     }
 
+    if (!userId && !file.mimeType.startsWith('image/')) {
+      throw new NotFoundException('File not found');
+    }
+
     if (file.storageProvider === 'CLOUDINARY') {
       try {
-        const stream = await new Promise<any>((resolve, reject) => {
-          https
-            .get(file.storageKey, (res) => {
-              if (res.statusCode !== 200) {
-                reject(
-                  new Error(
-                    `Failed to download from Cloudinary: ${res.statusCode}`,
-                  ),
-                );
-              } else {
-                resolve(res);
-              }
-            })
-            .on('error', reject);
-        });
-
+        const stream = await this.openRemoteStream(file.storageKey);
         return {
           stream,
           filename: file.filename,

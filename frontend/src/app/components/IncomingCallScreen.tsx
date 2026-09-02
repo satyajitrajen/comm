@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Phone, PhoneOff } from 'lucide-react';
 import Portal from './Portal';
 import {

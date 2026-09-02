@@ -20,23 +20,10 @@ class ShellScreen extends ConsumerStatefulWidget {
 
 class _ShellScreenState extends ConsumerState<ShellScreen> {
   @override
-  void initState() {
-    super.initState();
-    _connect();
-  }
-
-  Future<void> _connect() async {
-    final api = ref.read(apiClientProvider);
-    final token = await ref.read(sessionProvider).accessToken;
-    if (token == null) return;
-    final socket = TeamTimeSocket(baseUrl: api.baseUrl, token: token).connect();
-    ref.read(callControllerProvider.notifier).attachSocket(socket);
-  }
-
-  @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
     final call = ref.watch(callControllerProvider);
+    final socketStatus = ref.watch(socketStatusProvider);
     final pages = <({int i, String key, String label, IconData icon, Widget page})>[
       (i: 0, key: 'home', label: 'Home', icon: Icons.home_outlined, page: const HomeScreen()),
       (i: 1, key: 'teams', label: 'Teams', icon: Icons.groups_outlined, page: const TeamsListScreen()),
@@ -58,6 +45,22 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       body: Stack(
         children: [
           pages[safeIndex].page,
+          if (socketStatus == SocketStatus.reconnecting)
+            const Align(
+              alignment: Alignment.topCenter,
+              child: Material(
+                color: Color(0xFF0F172A),
+                child: SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text(
+                      'Reconnecting…',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (call.incoming != null)
             IncomingCallOverlay(call: call.incoming!),
           if (call.outgoingName != null && !call.inCall)

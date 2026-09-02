@@ -13,13 +13,27 @@ import { randomUUID } from 'crypto';
 
 import { PermissionsService } from '../../common/permissions.service';
 import { MailService } from '../../common/mail.service';
+import {
+  isCorsOriginAllowed,
+  parseCorsOrigins,
+} from '../../config/cors-origins';
 
 /** Short enough to limit exposure if the mailbox is later compromised. */
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 
+/** In-memory cap on wrong OTP guesses per challenge (brute-force guard). */
+const MAX_OTP_ATTEMPTS = 5;
+
+/** Constant bcrypt hash so failed logins for unknown users still do the work. */
+const DUMMY_PASSWORD_HASH =
+  '$2b$10$JbEh6xMJ2xeIX0CfzugGlOgcZbvR3xr2x/xYP8E/EeT5CCKSVSLHu';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+
+  /** Failed OTP verification counts, keyed by verifyKey. */
+  private readonly otpAttemptCounts = new Map<string, number>();
 
   constructor(
     private prisma: PrismaService,
@@ -138,6 +152,7 @@ export class AuthService {
     }
 
     if (!user) {
+      await bcrypt.compare(body.password ?? '', DUMMY_PASSWORD_HASH);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -225,13 +240,26 @@ export class AuthService {
     });
 
     if (!challenge || challenge.expiresAt < new Date()) {
+      this.otpAttemptCounts.delete(body.verifyKey);
+      throw new UnauthorizedException('OTP has expired or is invalid');
+    }
+
+    const failedAttempts = this.otpAttemptCounts.get(body.verifyKey) ?? 0;
+    if (failedAttempts >= MAX_OTP_ATTEMPTS) {
+      await this.prisma.otpChallenge
+        .delete({ where: { verifyKey: body.verifyKey } })
+        .catch(() => null);
+      this.otpAttemptCounts.delete(body.verifyKey);
       throw new UnauthorizedException('OTP has expired or is invalid');
     }
 
     const otpOk = await bcrypt.compare(body.otpCode, challenge.otpHash);
     if (!otpOk) {
+      this.otpAttemptCounts.set(body.verifyKey, failedAttempts + 1);
       throw new UnauthorizedException('OTP is incorrect');
     }
+
+    this.otpAttemptCounts.delete(body.verifyKey);
 
     await this.prisma.otpChallenge.delete({
       where: { verifyKey: body.verifyKey },
@@ -268,11 +296,36 @@ export class AuthService {
   ) {
     const otpHash = await bcrypt.hash(plainOtp, 8);
     const expiresAt = new Date(Date.now() + ttlMs);
+    this.otpAttemptCounts.delete(verifyKey);
     await this.prisma.otpChallenge.upsert({
       where: { verifyKey },
       create: { verifyKey, otpHash, expiresAt },
       update: { otpHash, expiresAt },
     });
+  }
+
+  /**
+   * Only trust a client-supplied Origin when it is on the configured CORS
+   * allow-list; otherwise fall back to the server-configured origin so the
+   * reset link can never be poisoned to an attacker-controlled host.
+   */
+  private resolveResetLinkOrigin(origin?: string): string {
+    const configured = parseCorsOrigins();
+    if (origin && configured.includes(origin)) {
+      return origin.replace(/\/$/, '');
+    }
+    const fallback = configured[0] || process.env.APP_ORIGIN || '';
+    if (fallback) {
+      return fallback.replace(/\/$/, '');
+    }
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      origin &&
+      isCorsOriginAllowed(origin)
+    ) {
+      return origin.replace(/\/$/, '');
+    }
+    return '';
   }
 
   /**
@@ -306,7 +359,7 @@ export class AuthService {
         },
       });
 
-      const base = (origin || process.env.APP_ORIGIN || '').replace(/\/$/, '');
+      const base = this.resolveResetLinkOrigin(origin);
       await this.mailService.sendPasswordReset(
         normalized,
         `${base}/reset-password?token=${token}`,

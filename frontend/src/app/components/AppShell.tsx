@@ -30,7 +30,7 @@ import { usersAPI, notificationsAPI, authAPI, messagesAPI, filesAPI, type Messag
 import { toPlainText } from '../../lib/mentions';
 import { useChatStore } from '../../store/useChatStore';
 import { useNotifications } from '../../hooks/useNotifications';
-import { io } from 'socket.io-client';
+import { createAppSocket } from '../../lib/socket';
 import Portal from './Portal';
 import ChangePasswordModal from './ChangePasswordModal';
 import { VideoCallModal } from './VideoCallModal';
@@ -40,7 +40,6 @@ import { useCallSignaling } from '../../hooks/useCallSignaling';
 import { useCallStore } from '../../store/useCallStore';
 import {
   AVAILABILITY_PICKER_OPTIONS,
-  statusDotClass,
   statusLabel,
 } from '../../lib/statusAvailability';
 import {
@@ -49,7 +48,6 @@ import {
 } from '../../lib/permissions';
 import {
   ensureDesktopConfig,
-  resolveServiceBaseUrl,
   sendDesktopNotification,
 } from '../../lib/desktopRuntime';
 import { useBrowserPush } from '../../hooks/useBrowserPush';
@@ -190,9 +188,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
           setProfileError('Upload succeeded but no file ID returned.');
         }
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         console.error('Failed to upload profile picture via FormData:', err);
-        const errorMsg = err?.response?.data?.message || err?.message || 'Failed to upload image.';
+        const errorMsg =
+          (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message ||
+          (err instanceof Error ? err.message : '') ||
+          'Failed to upload image.';
         setProfileError(Array.isArray(errorMsg) ? errorMsg.join(', ') : String(errorMsg));
         setAvatarPreviewUrl(''); // clear preview only on error
       })
@@ -259,7 +260,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   // Track active-call state for the Electron main process so it can warn on close.
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      (window as any).__commInCall = !!activeCall;
+      window.__commInCall = !!activeCall;
     }
   }, [activeCall]);
 
@@ -309,18 +310,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { notify } = useNotifications();
 
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
-    if (!token) return;
+    const socket = createAppSocket();
+    if (!socket) return;
 
     let currentUserId = '';
     try {
       const stored = localStorage.getItem('veloce_user');
       if (stored) currentUserId = JSON.parse(stored)?.id || '';
     } catch { /* ignore */ }
-
-    const socketUrl = resolveServiceBaseUrl();
-
-    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
 
     // Own presence is simply whether this socket is up. It is never stored,
     // and there is no way to set it by hand.
@@ -418,7 +415,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
     return () => {
       socket.disconnect();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notify]);
 
   function triggerCreateChannel() {
@@ -514,9 +510,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
         setShowProfileEditor(false);
         setProfileSuccess('');
       }, 700);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to save profile:', err);
-      const errorMsg = err?.response?.data?.message || err?.message || 'Profile could not be updated.';
+      const errorMsg =
+        (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message ||
+        (err instanceof Error ? err.message : '') ||
+        'Profile could not be updated.';
       setProfileError(Array.isArray(errorMsg) ? errorMsg.join(', ') : String(errorMsg));
     } finally {
       setSavingProfile(false);

@@ -15,12 +15,18 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+/** Only same-origin relative paths may be navigated to from a push payload. */
+function safeNotificationUrl(url) {
+  if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) return url;
+  return '/';
+}
+
 messaging.onBackgroundMessage((payload) => {
   const notification = payload.notification || {};
   const data = payload.data || {};
   const title = notification.title || data.title || 'TeamTime';
   const body = notification.body || data.body || '';
-  const url = data.url || '/home';
+  const url = safeNotificationUrl(data.url);
 
   return self.registration.showNotification(title, {
     body,
@@ -34,7 +40,7 @@ messaging.onBackgroundMessage((payload) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || '/home';
+  const target = safeNotificationUrl(event.notification.data && event.notification.data.url);
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {

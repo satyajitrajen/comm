@@ -30,6 +30,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   final _scroll = ScrollController();
   final _messages = <Map<String, dynamic>>[];
   io.Socket? _socket;
+  void Function()? _unbind;
   bool _loading = true;
   String? _error;
   String? _nextCursor;
@@ -49,34 +50,60 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   void dispose() {
     _composer.dispose();
     _scroll.dispose();
-    _socket?.emit('room.leave', {'conversationId': widget.conversationId});
-    _socket?.dispose();
+    _unbind?.call();
+    final socket = _socket;
+    if (socket != null) {
+      socket
+        ..off('connect', _onConnect)
+        ..off('message.sent', _onSent)
+        ..off('message.edited', _onEdited)
+        ..off('message.deleted', _onDeleted)
+        ..off('poll.created', _onSent)
+        ..off('poll.voted', _onEdited);
+      socket.emit('room.leave', {'conversationId': widget.conversationId});
+    }
     super.dispose();
   }
 
-  Future<void> _bindSocket() async {
-    final api = ref.read(apiClientProvider);
-    final token = await ref.read(sessionProvider).accessToken;
-    if (token == null) return;
-    final client = TeamTimeSocket(baseUrl: api.baseUrl, token: token);
-    final socket = client.connect();
-    socket.on('connect', (_) {
-      socket.emit('room.join', {'conversationId': widget.conversationId});
-    });
-    socket.on('message.sent', (data) {
-      if (data is Map && data['conversationId'] == widget.conversationId) {
-        setState(() => _upsert(Map<String, dynamic>.from(data)));
-      }
-    });
-    socket.on('message.edited', (data) {
-      if (data is Map) _upsert(Map<String, dynamic>.from(data));
-    });
-    socket.on('message.deleted', (data) {
-      if (data is Map && data['id'] != null) {
-        setState(() => _messages.removeWhere((m) => m['id'] == data['id']));
-      }
-    });
+  void _bindSocket() {
+    final client = ref.read(socketClientProvider);
+    _unbind = client.onSocket(_onSocketReady);
+  }
+
+  void _onSocketReady(io.Socket socket) {
+    if (identical(_socket, socket)) {
+      if (socket.connected) _onConnect(null);
+      return;
+    }
     _socket = socket;
+    socket
+      ..on('connect', _onConnect)
+      ..on('message.sent', _onSent)
+      ..on('message.edited', _onEdited)
+      ..on('message.deleted', _onDeleted)
+      ..on('poll.created', _onSent)
+      ..on('poll.voted', _onEdited);
+    if (socket.connected) _onConnect(null);
+  }
+
+  void _onConnect(dynamic _) {
+    _socket?.emit('room.join', {'conversationId': widget.conversationId});
+  }
+
+  void _onSent(dynamic data) {
+    if (data is Map && data['conversationId'] == widget.conversationId) {
+      setState(() => _upsert(Map<String, dynamic>.from(data)));
+    }
+  }
+
+  void _onEdited(dynamic data) {
+    if (data is Map) _upsert(Map<String, dynamic>.from(data));
+  }
+
+  void _onDeleted(dynamic data) {
+    if (data is Map && data['id'] != null) {
+      setState(() => _messages.removeWhere((m) => m['id'] == data['id']));
+    }
   }
 
   void _upsert(Map<String, dynamic> msg) {
@@ -248,7 +275,6 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   conversationId: widget.conversationId,
                   conversationName: widget.title,
                   conversationType: widget.type,
-                  socket: _socket,
                 ),
             icon: const Icon(Icons.videocam_outlined),
           ),
@@ -367,31 +393,104 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
 
   List<Widget> _polls(Map<String, dynamic> m) {
-    final polls = m['polls'];
-    if (polls is! List) return [];
-    return polls.map((raw) {
-      final poll = Map<String, dynamic>.from(raw as Map);
-      final options = (poll['options'] as List? ?? []).map((o) => Map<String, dynamic>.from(o as Map));
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('${poll['question'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w600)),
-          ...options.map(
-            (opt) => TextButton(
-              onPressed: () async {
-                final id = poll['id'];
-                if (id == null) return;
-                await ref.read(apiClientProvider).dio.post(
-                  '/api/v1/messages/poll/$id/vote',
-                  data: {'optionId': opt['id']},
+    final rawPoll = m['polls'];
+    if (rawPoll == null) return [];
+    final poll = rawPoll is Map
+        ? Map<String, dynamic>.from(rawPoll)
+        : (rawPoll is List && rawPoll.isNotEmpty ? Map<String, dynamic>.from(rawPoll.first as Map) : null);
+    if (poll == null) return [];
+    final options = (poll['options'] as List? ?? [])
+        .map((o) => Map<String, dynamic>.from(o as Map))
+        .toList();
+    final votes = (poll['votes'] as List? ?? [])
+        .map((v) => Map<String, dynamic>.from(v as Map))
+        .toList();
+    final totalVotes = votes.length;
+    final mine = m['senderId'] == _me;
+
+    return [
+      const SizedBox(height: 8),
+      Text(
+        '📊 ${poll['question'] ?? 'Poll'}',
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: mine ? Colors.white : const Color(0xFF0F172A),
+        ),
+      ),
+      const SizedBox(height: 4),
+      ...options.map((opt) {
+        final optId = opt['id'];
+        final optText = opt['optionText'] ?? opt['text'] ?? opt['label'] ?? 'Option';
+        final optVotes = votes.where((v) => v['optionId'] == optId).length;
+        final hasVotedThis = votes.any((v) => v['optionId'] == optId && v['userId'] == _me);
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              backgroundColor: hasVotedThis
+                  ? (mine ? Colors.white24 : const Color(0xFFE0F2FE))
+                  : null,
+              side: BorderSide(
+                color: mine ? Colors.white38 : const Color(0xFFCBD5E1),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            onPressed: () async {
+              final pollId = poll['id'];
+              if (pollId == null || optId == null) return;
+              try {
+                final res = await ref.read(apiClientProvider).dio.post(
+                  '/api/v1/messages/poll/$pollId/vote',
+                  data: {'optionId': optId},
                 );
-              },
-              child: Text('${opt['text'] ?? opt['label'] ?? 'Option'}'),
+                if (res.data is Map) {
+                  _upsert(Map<String, dynamic>.from(res.data as Map));
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(apiError(e))),
+                  );
+                }
+              }
+            },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: Text(
+                    optText.toString(),
+                    style: TextStyle(
+                      color: mine ? Colors.white : const Color(0xFF0F172A),
+                      fontWeight: hasVotedThis ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$optVotes',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: mine ? Colors.white70 : const Color(0xFF64748B),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      );
-    }).toList();
+        );
+      }),
+      if (totalVotes > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            '$totalVotes vote${totalVotes == 1 ? '' : 's'} total',
+            style: TextStyle(
+              fontSize: 10,
+              color: mine ? Colors.white70 : const Color(0xFF64748B),
+            ),
+          ),
+        ),
+      const SizedBox(height: 4),
+    ];
   }
 
   void _sheet(Map<String, dynamic> m, bool mine) {

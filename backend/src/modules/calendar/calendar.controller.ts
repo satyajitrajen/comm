@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  Header,
   Param,
   Patch,
   Post,
@@ -83,7 +82,11 @@ export class CalendarController {
       attendeeIds?: string[];
     },
   ) {
-    return await this.calendarService.sendInvites(userId, eventId, body?.attendeeIds);
+    return await this.calendarService.sendInvites(
+      userId,
+      eventId,
+      body?.attendeeIds,
+    );
   }
 
   @Get(':id/ics')

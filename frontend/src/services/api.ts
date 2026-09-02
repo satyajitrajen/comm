@@ -6,6 +6,7 @@ import {
 } from '../lib/desktopRuntime';
 
 export const TOKEN_UPDATED_EVENT = 'veloce-token-updated';
+const AUTH_BROADCAST_CHANNEL = 'veloce-auth';
 
 type AuthRefreshResponse = {
   accessToken: string;
@@ -13,7 +14,19 @@ type AuthRefreshResponse = {
   sessionId: string;
 };
 
-type RetryableConfig = InternalAxiosRequestConfig & { _retryAuth?: boolean };
+type RetryableConfig = InternalAxiosRequestConfig & {
+  _retryAuth?: boolean;
+  /** Refresh token as of request time — detects rotation by another tab. */
+  _refreshToken?: string | null;
+};
+
+let authChannel: BroadcastChannel | null = null;
+
+function getAuthChannel(): BroadcastChannel | null {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return null;
+  if (!authChannel) authChannel = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+  return authChannel;
+}
 
 export const api = axios.create({
   baseURL: resolveApiBaseUrl() || undefined,
@@ -41,6 +54,7 @@ export function persistAuthTokens(accessToken: string, refreshToken: string, ses
   localStorage.setItem('veloce_session', sessionId);
   useChatStore.setState({ accessToken });
   notifyTokenUpdated();
+  getAuthChannel()?.postMessage({ type: 'tokens-rotated' });
 }
 
 let refreshInFlight: Promise<string | null> | null = null;
@@ -49,26 +63,51 @@ async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
+    let detachExternalListener: (() => void) | undefined;
     try {
       if (typeof window === 'undefined') return null;
       const sessionId = localStorage.getItem('veloce_session');
       const refreshToken = localStorage.getItem('veloce_refresh');
       if (!sessionId || !refreshToken) return null;
 
-      const { data } = await axios.post<AuthRefreshResponse>(
-        '/api/v1/auth/refresh',
-        { sessionId, refreshToken },
-        {
-          baseURL: resolveApiBaseUrl() || undefined,
-          headers: { 'X-Skip-Auth-Refresh': '1' },
-        },
-      );
+      // If another tab rotates tokens while this refresh is in flight, the
+      // refresh token we just read is already invalidated. Watching the auth
+      // channel lets this tab adopt the fresher stored token instead.
+      const externalToken = new Promise<string | null>((resolve) => {
+        const channel = getAuthChannel();
+        if (!channel) {
+          resolve(null);
+          return;
+        }
+        const onMessage = () => {
+          resolve(localStorage.getItem('veloce_token'));
+        };
+        channel.addEventListener('message', onMessage);
+        detachExternalListener = () => channel.removeEventListener('message', onMessage);
+      });
+      const rotatedToken = axios
+        .post<AuthRefreshResponse>(
+          '/api/v1/auth/refresh',
+          { sessionId, refreshToken },
+          {
+            baseURL: resolveApiBaseUrl() || undefined,
+            headers: { 'X-Skip-Auth-Refresh': '1' },
+          },
+        )
+        .then(({ data }) => {
+          persistAuthTokens(data.accessToken, data.refreshToken, data.sessionId);
+          return data.accessToken;
+        })
+        .catch(() => null);
 
-      persistAuthTokens(data.accessToken, data.refreshToken, data.sessionId);
-      return data.accessToken;
+      const token = await Promise.race([rotatedToken, externalToken]);
+      if (token) return token;
+
+      return null;
     } catch {
       return null;
     } finally {
+      detachExternalListener?.();
       refreshInFlight = null;
     }
   })();
@@ -82,6 +121,7 @@ api.interceptors.request.use((config) => {
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    (config as RetryableConfig)._refreshToken = localStorage.getItem('veloce_refresh');
   }
   return config;
 });
@@ -129,6 +169,18 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
       return Promise.reject(error);
+    }
+
+    // Another tab may have rotated tokens for this session between this
+    // request and its 401. Retrying with the stored access token avoids
+    // burning our (now stale) refresh token and getting force-logged-out.
+    const storedRefresh = localStorage.getItem('veloce_refresh');
+    const storedAccess = localStorage.getItem('veloce_token');
+    if (storedRefresh && storedRefresh !== cfg._refreshToken && storedAccess) {
+      cfg._retryAuth = true;
+      cfg._refreshToken = storedRefresh;
+      cfg.headers.Authorization = `Bearer ${storedAccess}`;
+      return api(cfg);
     }
 
     cfg._retryAuth = true;

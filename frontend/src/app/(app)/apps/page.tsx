@@ -108,7 +108,7 @@ const FALLBACK_APPS: AppIntegration[] = [
 export default function AppsPage() {
   const [apps, setApps] = useState<AppIntegration[]>(FALLBACK_APPS);
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   async function loadApps() {

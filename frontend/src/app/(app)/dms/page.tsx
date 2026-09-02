@@ -1,13 +1,12 @@
 'use client';
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
 import { ChevronLeft, Plus, RefreshCw, Search, Send, Users, X, Paperclip, Smile, FileText, BarChart2, CheckSquare, Video, User, Mail, Info } from 'lucide-react';
 import { chatsAPI, messagesAPI, usersAPI, filesAPI, tasksAPI } from '../../../services/api';
 import { toPlainText } from '../../../lib/mentions';
 import { avatarAccent, initials, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, saveBlob, timeAgo } from '../_utils';
 import Portal from '../../components/Portal';
-import { MessageBubble, PollData, TaskData } from '../../components/MessageBubble';
+import { MessageBubble, PollData, TaskData, useNow } from '../../components/MessageBubble';
 import CreatePollModal from '../../components/CreatePollModal';
 import CreateTaskModal from '../../components/CreateTaskModal';
 import ChatComposerInput from '../../components/ChatComposerInput';
@@ -20,8 +19,9 @@ import {
 } from '../../../lib/chatsFeedCache';
 import { useCallStore } from '../../../store/useCallStore';
 import { callRoomName } from '../../../lib/callRoom';
-import { resolveServiceBaseUrl } from '../../../lib/desktopRuntime';
-import { resolveStatus, statusDotClass, statusLabel } from '../../../lib/statusAvailability';
+import type { Socket } from 'socket.io-client';
+import { createAppSocket } from '../../../lib/socket';
+import { resolveStatus, statusLabel } from '../../../lib/statusAvailability';
 
 type DirectChat = {
   conversationId: string;
@@ -117,6 +117,7 @@ export default function DMsPage() {
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingFilePreviewUrl, setPendingFilePreviewUrl] = useState<string | null>(null);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -127,6 +128,26 @@ export default function DMsPage() {
   const [currentUserName, setCurrentUserName] = useState('');
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const startOutgoingCall = useCallStore((state) => state.startOutgoingCall);
+  // Shared clock for the edit window in message bubbles (one interval, not one per bubble).
+  const now = useNow(10_000);
+
+  const socketRef = useRef<Socket | null>(null);
+  const selectedIdRef = useRef(selectedId);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  /** Preview object URL for the pending attachment; revoked on change/unmount. */
+  useEffect(() => {
+    if (!pendingFile || !pendingFile.type.startsWith('image/')) {
+      setPendingFilePreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(pendingFile);
+    setPendingFilePreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [pendingFile]);
 
   /** Mentionable people, excluding yourself. */
   const mentionCandidates = useMemo(
@@ -334,21 +355,22 @@ export default function DMsPage() {
     return () => window.clearTimeout(timer);
   }, [selectedId, newestMessageId]);
 
+  // One socket per page; room membership and per-conversation state follow
+  // selectedId via refs and the room effect below, not by reconnecting.
   useEffect(() => {
-    if (!selectedId) return;
-
-    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
-    if (!token) return;
-
-    const socketUrl = resolveServiceBaseUrl();
-    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+    const socket = createAppSocket();
+    if (!socket) return;
+    socketRef.current = socket;
 
     socket.on('connect', () => {
-      socket.emit('room.join', { conversationId: selectedId });
+      const cid = selectedIdRef.current;
+      if (cid) {
+        socket.emit('room.join', { conversationId: cid });
+      }
     });
 
     socket.on('message.sent', (message: BackendMessage & { conversationId: string }) => {
-      if (message.conversationId === selectedId) {
+      if (message.conversationId === selectedIdRef.current) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === message.id)) return prev;
           return [...prev, message];
@@ -356,34 +378,90 @@ export default function DMsPage() {
       }
     });
 
-    socket.on('message.edited', () => {
-      loadMessages(selectedId);
+    socket.on('message.edited', (data?: { messageId?: string; content?: string }) => {
+      if (data?.messageId && data?.content) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === data.messageId ? { ...m, content: data.content, isEdited: true } : m)),
+        );
+      } else {
+        loadMessages(selectedIdRef.current);
+      }
     });
 
-    socket.on('message.deleted', () => {
-      loadMessages(selectedId);
-      scheduleChatListRefresh(selectedId);
+    socket.on('message.deleted', (data?: { messageId?: string }) => {
+      if (data?.messageId) {
+        setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+      } else {
+        loadMessages(selectedIdRef.current);
+      }
+      scheduleChatListRefresh(selectedIdRef.current);
     });
 
-    socket.on('message.reacted', () => {
-      loadMessages(selectedId);
+    socket.on('message.reacted', (data?: { messageId?: string; userId?: string; emoji?: string; action?: 'ADDED' | 'REMOVED' }) => {
+      const messageId = data?.messageId;
+      const userId = data?.userId;
+      const emoji = data?.emoji;
+      if (messageId && userId && emoji) {
+        const action = data?.action;
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== messageId) return m;
+            const remaining = (m.reactions || []).filter(
+              (r) => !(r.userId === userId && r.emoji === emoji),
+            );
+            if (action === 'REMOVED') return { ...m, reactions: remaining };
+            return { ...m, reactions: [...remaining, { emoji, userId }] };
+          }),
+        );
+      } else {
+        loadMessages(selectedIdRef.current);
+      }
     });
 
-    socket.on('poll.voted', () => {
-      loadMessages(selectedId);
+    socket.on('poll.voted', (poll?: PollData) => {
+      if (poll?.id && Array.isArray(poll.votes)) {
+        setMessages((prev) =>
+          prev.map((m) => (m.polls?.id === poll.id ? { ...m, polls: poll } : m)),
+        );
+      } else {
+        loadMessages(selectedIdRef.current);
+      }
     });
 
-    socket.on('task.created', () => {
-      loadMessages(selectedId);
+    socket.on('task.created', (task?: TaskData & { messageId?: string }) => {
+      if (task?.id && task.messageId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === task.messageId ? { ...m, messageType: 'TASK', tasks: [...(m.tasks || []), task] } : m,
+          ),
+        );
+      } else {
+        loadMessages(selectedIdRef.current);
+      }
     });
 
     socket.on('user.presence', () => {
-      scheduleChatListRefresh(selectedId);
+      scheduleChatListRefresh(selectedIdRef.current);
     });
 
     return () => {
-      socket.emit('room.leave', { conversationId: selectedId });
       socket.disconnect();
+      socketRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Room join/leave follows the selected conversation without reconnecting.
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !selectedId) return;
+
+    socket.emit('room.join', { conversationId: selectedId });
+
+    return () => {
+      if (socket.connected) {
+        socket.emit('room.leave', { conversationId: selectedId });
+      }
     };
   }, [selectedId]);
 
@@ -483,7 +561,9 @@ export default function DMsPage() {
       }
 
       await loadChats(selectedId);
-      await loadMessages(selectedId);
+      // The optimistic append plus the id-deduped message.sent echo already
+      // cover correctness; don't hold the sending state on a full refetch.
+      void loadMessages(selectedId);
     } catch {
       setError('Message could not be sent.');
     } finally {
@@ -828,6 +908,7 @@ export default function DMsPage() {
                           variant="dm"
                           canEdit={own}
                           createdAt={message.createdAt}
+                          now={now}
                           replyCount={repliesByMessage[message.id]?.length || 0}
                           reactions={(message.reactions || []).reduce<Array<{ emoji: string; count: number; reactedByMe: boolean }>>((acc, r) => {
                             const found = acc.find((x) => x.emoji === r.emoji);
@@ -902,8 +983,8 @@ export default function DMsPage() {
                       ) : (
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            {pendingFile.type.startsWith('image/') ? (
-                              <img src={URL.createObjectURL(pendingFile)} alt="preview" className="h-8 w-8 rounded-lg object-cover shadow-sm" />
+                            {pendingFile.type.startsWith('image/') && pendingFilePreviewUrl ? (
+                              <img src={pendingFilePreviewUrl} alt="preview" className="h-8 w-8 rounded-lg object-cover shadow-sm" />
                             ) : (
                               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-500/20">
                                 <FileText className="h-4.5 w-4.5" />

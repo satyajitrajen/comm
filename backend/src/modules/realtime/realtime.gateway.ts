@@ -88,10 +88,7 @@ export class RealtimeGateway
   async handleConnection(client: CustomSocket) {
     try {
       const auth = client.handshake.auth as Record<string, unknown> | undefined;
-      const query = client.handshake.query as
-        | Record<string, unknown>
-        | undefined;
-      const token = (auth?.token || query?.token) as string | undefined;
+      const token = auth?.token as string | undefined;
       if (!token) {
         client.disconnect();
         return;
@@ -838,9 +835,7 @@ export class RealtimeGateway
       // Fallback for escalated calls.
       call = this.getActiveCallByConversation(data.conversationId);
     }
-    let created = false;
     if (!call) {
-      created = true;
       call = {
         roomName,
         conversationId: data.conversationId,
@@ -868,7 +863,11 @@ export class RealtimeGateway
     void this.checkAndEscalateCallIfNeeded(call);
 
     this.logger.log(`[CALL JOIN] ${userId} joined call ${call.roomName}`);
-    return { status: 'joined', roomName: call.roomName, conversationId: call.conversationId };
+    return {
+      status: 'joined',
+      roomName: call.roomName,
+      conversationId: call.conversationId,
+    };
   }
 
   @SubscribeMessage('call.cancel')
@@ -914,12 +913,16 @@ export class RealtimeGateway
       };
 
       try {
-        const participants = await this.prisma.conversationParticipant.findMany({
-          where: { conversationId: data.conversationId },
-          select: { userId: true },
-        });
+        const participants = await this.prisma.conversationParticipant.findMany(
+          {
+            where: { conversationId: data.conversationId },
+            select: { userId: true },
+          },
+        );
         for (const { userId: pid } of participants) {
-          this.server.to(`user:${pid}`).emit('call.cancelled', cancelledPayload);
+          this.server
+            .to(`user:${pid}`)
+            .emit('call.cancelled', cancelledPayload);
         }
       } catch {
         /* non-critical fallback */

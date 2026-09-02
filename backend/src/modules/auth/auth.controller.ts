@@ -5,6 +5,8 @@ import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AuthService } from './auth.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 import { LogoutDto, RefreshTokenDto } from './dto/refresh-token.dto';
 import { Verify2FaDto } from './dto/verify-2fa.dto';
 
@@ -14,24 +16,13 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('register')
-  async register(
-    @Body()
-    body: {
-      email?: string;
-      phoneNumber?: string;
-      displayName: string;
-      password?: string;
-    },
-  ) {
+  async register(@Body() body: RegisterDto) {
     return await this.authService.register(body);
   }
 
   @Throttle({ default: { limit: 12, ttl: 60_000 } })
   @Post('login')
-  async login(
-    @Body() body: { email?: string; phoneNumber?: string; password?: string },
-    @Req() req: Request,
-  ) {
+  async login(@Body() body: LoginDto, @Req() req: Request) {
     return await this.authService.login({
       ...body,
       ipAddress: req.ip || '127.0.0.1',

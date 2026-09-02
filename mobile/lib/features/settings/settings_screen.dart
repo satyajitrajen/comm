@@ -96,13 +96,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: () async {
+              if (_current.text.isEmpty || _next.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter current and new password')),
+                );
+                return;
+              }
               try {
                 await ref.read(authProvider.notifier).changePassword(
                       currentPassword: _current.text,
                       newPassword: _next.text,
                     );
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password updated — please sign in again')),
+                );
+                await ref.read(authProvider.notifier).logout();
               } catch (e) {
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(e))));

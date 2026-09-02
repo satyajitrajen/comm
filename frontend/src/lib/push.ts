@@ -60,6 +60,12 @@ export async function getPushState(): Promise<PushState> {
   }
 }
 
+/** Only same-origin relative paths may be navigated to from a push payload. */
+function safeNotificationUrl(url: string | undefined | null): string {
+  if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) return url;
+  return '/';
+}
+
 async function enableFcmPush(): Promise<PushState> {
   const app = getFirebaseApp();
   if (!app) return 'unconfigured';
@@ -89,7 +95,7 @@ async function enableFcmPush(): Promise<PushState> {
     const title =
       payload.notification?.title || payload.data?.title || 'TeamTime';
     const body = payload.notification?.body || payload.data?.body || '';
-    const url = payload.data?.url || '/home';
+    const url = safeNotificationUrl(payload.data?.url);
     const n = new Notification(title, {
       body,
       icon: '/teamtime-favicon.png',
@@ -97,7 +103,7 @@ async function enableFcmPush(): Promise<PushState> {
     });
     n.onclick = () => {
       window.focus();
-      if (url) window.location.assign(url);
+      window.location.assign(url);
       n.close();
     };
   });

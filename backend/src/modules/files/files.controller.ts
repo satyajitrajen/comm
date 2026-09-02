@@ -14,8 +14,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { FilesService } from './files.service';
-import { FILE_UPLOAD_MAX_BYTES } from './files.constants';
+import {
+  FILE_UPLOAD_MAX_BYTES,
+  INLINE_SAFE_MIME_TYPES,
+} from './files.constants';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 
 @Controller('api/v1/files')
@@ -66,16 +70,18 @@ export class FilesController {
   }
 
   @Get(':id/view')
+  @UseGuards(OptionalJwtAuthGuard)
   async viewFile(
-    @Param('id') fileId: string,
-    @Res({ passthrough: true }) response: Response,
+    @CurrentUserId() userId?: string,
+    @Param('id') fileId?: string,
+    @Res({ passthrough: true }) response?: Response,
   ) {
-    const download = await this.filesService.getFileForView(fileId);
-    response.set({
-      'Content-Type': download.mimeType,
-      'Content-Length': download.fileSizeBytes.toString(),
-      'Content-Disposition': `inline; filename="${download.filename.replace(/"/g, '')}"`,
-    });
+    const download = await this.filesService.getFileForView(fileId!, userId);
+    this.setFileResponseHeaders(
+      response!,
+      download,
+      INLINE_SAFE_MIME_TYPES.has(download.mimeType) ? 'inline' : 'attachment',
+    );
     return new StreamableFile(download.stream);
   }
 
@@ -87,11 +93,23 @@ export class FilesController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const download = await this.filesService.getDownload(userId, fileId);
-    response.set({
-      'Content-Type': download.mimeType,
-      'Content-Length': download.fileSizeBytes.toString(),
-      'Content-Disposition': `attachment; filename="${download.filename.replace(/"/g, '')}"`,
-    });
+    this.setFileResponseHeaders(response, download, 'attachment');
     return new StreamableFile(download.stream);
+  }
+
+  private setFileResponseHeaders(
+    response: Response,
+    file: { filename: string; mimeType: string; fileSizeBytes: bigint },
+    disposition: 'inline' | 'attachment',
+  ) {
+    response.set({
+      'Content-Type': INLINE_SAFE_MIME_TYPES.has(file.mimeType)
+        ? file.mimeType
+        : 'application/octet-stream',
+      'Content-Length': file.fileSizeBytes.toString(),
+      'Content-Disposition': `${disposition}; filename="${file.filename.replace(/"/g, '')}"`,
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': 'sandbox',
+    });
   }
 }

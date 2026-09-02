@@ -52,7 +52,7 @@ export class UserAwareThrottlerGuard extends ThrottlerGuard {
     const http = context.switchToHttp();
     return {
       req: http.getRequest<Record<string, unknown>>(),
-      res: http.getResponse(),
+      res: http.getResponse<Record<string, any>>(),
     };
   }
 }

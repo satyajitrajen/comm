@@ -1,7 +1,6 @@
 'use client';
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
 import {
   Check,
   Download,
@@ -24,15 +23,13 @@ import {
   Search,
   Pin,
   Command,
-  Sparkles,
   PhoneCall,
 } from 'lucide-react';
-import { MessageBubble, PollData, TaskData } from '../../components/MessageBubble';
+import { MessageBubble, PollData, TaskData, useNow } from '../../components/MessageBubble';
 import { callsAPI, chatsAPI, filesAPI, messagesAPI, tasksAPI, usersAPI } from '../../../services/api';
 import { toPlainText } from '../../../lib/mentions';
 import { avatarAccent, canPreviewFile, formatFileSize, initials, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, openBlobPreview, saveBlob, timeAgo } from '../_utils';
 import Portal from '../../components/Portal';
-import { SearchDropdown } from '../../components/SearchDropdown';
 import CreatePollModal from '../../components/CreatePollModal';
 import CreateTaskModal from '../../components/CreateTaskModal';
 import ChatComposerInput from '../../components/ChatComposerInput';
@@ -49,7 +46,8 @@ import {
 } from '../../../lib/chatsFeedCache';
 import { useCallStore } from '../../../store/useCallStore';
 import { callRoomName } from '../../../lib/callRoom';
-import { resolveServiceBaseUrl } from '../../../lib/desktopRuntime';
+import type { Socket } from 'socket.io-client';
+import { createAppSocket } from '../../../lib/socket';
 
 type GroupInfo = {
   name?: string | null;
@@ -219,6 +217,27 @@ export default function TeamsPage() {
   const [channelSearchQuery, setChannelSearchQuery] = useState('');
   const [currentUserName, setCurrentUserName] = useState('');
   const startOutgoingCall = useCallStore((state) => state.startOutgoingCall);
+  // Shared clock for the edit window in message bubbles (one interval, not one per bubble).
+  const now = useNow(10_000);
+
+  const socketRef = useRef<Socket | null>(null);
+  const selectedIdRef = useRef(selectedId);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  /** Preview object URL for the pending attachment; revoked on change/unmount. */
+  const [pendingFilePreviewUrl, setPendingFilePreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingFile || !pendingFile.type.startsWith('image/')) {
+      setPendingFilePreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(pendingFile);
+    setPendingFilePreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [pendingFile]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -520,6 +539,13 @@ export default function TeamsPage() {
     [],
   );
 
+  // Kept in a ref so the once-only socket effect always calls the latest
+  // closure of loadSurface (it reads `chats` state).
+  const loadSurfaceRef = useRef(loadSurface);
+  useEffect(() => {
+    loadSurfaceRef.current = loadSurface;
+  });
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
@@ -554,21 +580,22 @@ export default function TeamsPage() {
     setShowChannelInfo(false);
   }, [selectedId]);
 
+  // One socket per page; room membership and per-conversation state follow
+  // selectedId via refs and the room effect below, not by reconnecting.
   useEffect(() => {
-    if (!selectedId) return;
-
-    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
-    if (!token) return;
-
-    const socketUrl = resolveServiceBaseUrl();
-    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+    const socket = createAppSocket();
+    if (!socket) return;
+    socketRef.current = socket;
 
     socket.on('connect', () => {
-      socket.emit('room.join', { conversationId: selectedId });
+      const cid = selectedIdRef.current;
+      if (cid) {
+        socket.emit('room.join', { conversationId: cid });
+      }
     });
 
     socket.on('message.sent', (message: BackendMessage & { conversationId: string }) => {
-      if (message.conversationId === selectedId) {
+      if (message.conversationId === selectedIdRef.current) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === message.id)) return prev;
           return [...prev, message];
@@ -579,8 +606,10 @@ export default function TeamsPage() {
     socket.on('conversation.deleted', (data: { conversationId: string }) => {
       setChats((prev) => {
         const remaining = prev.filter((c) => c.conversationId !== data.conversationId);
-        if (selectedId === data.conversationId) {
-          setSelectedId(remaining[0]?.conversationId || '');
+        if (selectedIdRef.current === data.conversationId) {
+          const nextSelectedId = remaining[0]?.conversationId || '';
+          selectedIdRef.current = nextSelectedId;
+          setSelectedId(nextSelectedId);
         }
         return remaining;
       });
@@ -592,7 +621,7 @@ export default function TeamsPage() {
           prev.map((m) => (m.id === data.messageId ? { ...m, content: data.content, isEdited: true } : m)),
         );
       } else {
-        loadSurface(selectedId);
+        loadSurfaceRef.current(selectedIdRef.current);
       }
     });
 
@@ -600,30 +629,45 @@ export default function TeamsPage() {
       if (data?.messageId) {
         setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
       } else {
-        loadSurface(selectedId);
+        loadSurfaceRef.current(selectedIdRef.current);
       }
-      scheduleChatListRefresh(selectedId);
+      scheduleChatListRefresh(selectedIdRef.current);
     });
 
     socket.on('message.reacted', () => {
-      loadSurface(selectedId);
+      loadSurfaceRef.current(selectedIdRef.current);
     });
 
     socket.on('poll.voted', () => {
-      loadSurface(selectedId);
+      loadSurfaceRef.current(selectedIdRef.current);
     });
 
     socket.on('task.created', () => {
-      loadSurface(selectedId);
+      loadSurfaceRef.current(selectedIdRef.current);
     });
 
     socket.on('user.presence', () => {
-      scheduleChatListRefresh(selectedId);
+      scheduleChatListRefresh(selectedIdRef.current);
     });
 
     return () => {
-      socket.emit('room.leave', { conversationId: selectedId });
       socket.disconnect();
+      socketRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Room join/leave follows the selected conversation without reconnecting.
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !selectedId) return;
+
+    socket.emit('room.join', { conversationId: selectedId });
+
+    return () => {
+      if (socket.connected) {
+        socket.emit('room.leave', { conversationId: selectedId });
+      }
     };
   }, [selectedId]);
 
@@ -1300,6 +1344,7 @@ export default function TeamsPage() {
                             reactions={reactionCounts(message.reactions, currentUserId)}
                             replyCount={replies.length}
                             canEdit={!!currentUserId && message.senderId === currentUserId}
+                            now={now}
                             availableConversations={chats.map((c) => ({ id: c.conversationId, name: channelName(c) }))}
                             avatarNode={
                               <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold ${avatarAccent(author)}`}>
@@ -1377,8 +1422,8 @@ export default function TeamsPage() {
                           ) : (
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2.5 min-w-0">
-                                {pendingFile.type.startsWith('image/') ? (
-                                  <img src={URL.createObjectURL(pendingFile)} alt="preview" className="h-8 w-8 rounded-lg object-cover shadow-sm" />
+                                {pendingFile.type.startsWith('image/') && pendingFilePreviewUrl ? (
+                                  <img src={pendingFilePreviewUrl} alt="preview" className="h-8 w-8 rounded-lg object-cover shadow-sm" />
                                 ) : (
                                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-500/20">
                                     <FileText className="h-4.5 w-4.5" />
@@ -1793,6 +1838,7 @@ export default function TeamsPage() {
                           isPinned={true}
                           reactions={reactionCounts(message.reactions, currentUserId)}
                           canEdit={!!currentUserId && message.senderId === currentUserId}
+                          now={now}
                           avatarNode={
                             <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold ${avatarAccent(message.sender?.profile?.displayName || 'Workspace user')}`}>
                               {initials(message.sender?.profile?.displayName || 'Workspace user')}

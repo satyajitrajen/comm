@@ -36,6 +36,9 @@ const byAvailability = new Map<string, StatusDisplay>(
 export type HasStatus = {
   presence?: Presence | string | null;
   availability?: Availability | string | null;
+  /** Legacy shapes some API payloads still carry. */
+  isOnline?: boolean | null;
+  status?: string | null;
 };
 
 /**
@@ -51,7 +54,12 @@ export function resolveStatus(subject?: HasStatus | null): StatusDisplay {
     if (match) return match;
   }
   const p = typeof subject.presence === 'string' ? subject.presence.toUpperCase() : '';
-  if (p === 'OFFLINE' || (subject as any).isOnline === false || (subject as any).status === 'OFFLINE' || (subject as any).status === 'offline') {
+  if (
+    p === 'OFFLINE' ||
+    subject.isOnline === false ||
+    subject.status === 'OFFLINE' ||
+    subject.status === 'offline'
+  ) {
     return OFFLINE;
   }
   return ONLINE;

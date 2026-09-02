@@ -621,6 +621,15 @@ export class AdminService {
         });
       }
 
+      // Mirror the user-initiated password change: a new password must
+      // invalidate any live sessions.
+      if (passwordHash) {
+        await tx.loginSession.updateMany({
+          where: { userId: targetUserId, isRevoked: false },
+          data: { isRevoked: true },
+        });
+      }
+
       if (
         profileUpdate.displayName !== undefined ||
         profileUpdate.aboutText !== undefined ||

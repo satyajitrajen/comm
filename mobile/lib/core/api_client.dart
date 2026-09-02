@@ -4,7 +4,7 @@ import 'config.dart';
 import 'session.dart';
 
 class ApiClient {
-  ApiClient(this._session) {
+  ApiClient(this._session, {this.onSessionExpired}) {
     final isRelease = kReleaseMode;
     _baseUrl = AppConfig.apiBaseUrl(isRelease: isRelease);
     dio = Dio(
@@ -18,7 +18,9 @@ class ApiClient {
       InterceptorsWrapper(
         onRequest: (options, handler) async {
           final override = await _session.apiOverride;
-          if (override != null && override.isNotEmpty) {
+          if (override != null &&
+              override.isNotEmpty &&
+              (!kReleaseMode || override.startsWith('https://'))) {
             options.baseUrl = override;
           }
           final skip = options.headers['X-Skip-Auth-Refresh'] == '1';
@@ -40,6 +42,10 @@ class ApiClient {
           final refreshed = await _refresh();
           if (refreshed == null) {
             await _session.clear();
+            final expired = onSessionExpired;
+            if (expired != null) {
+              await expired();
+            }
             handler.next(error);
             return;
           }
@@ -58,12 +64,18 @@ class ApiClient {
   }
 
   final SecureSession _session;
+  final Future<void> Function()? onSessionExpired;
   late final Dio dio;
   late String _baseUrl;
+  Future<String?>? _refreshInFlight;
 
   String get baseUrl => _baseUrl;
 
-  Future<String?> _refresh() async {
+  Future<String?> _refresh() {
+    return _refreshInFlight ??= _doRefresh().whenComplete(() => _refreshInFlight = null);
+  }
+
+  Future<String?> _doRefresh() async {
     final sessionId = await _session.sessionId;
     final refresh = await _session.refreshToken;
     if (sessionId == null || refresh == null) return null;

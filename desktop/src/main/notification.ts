@@ -1,4 +1,5 @@
 import { Notification, BrowserWindow, nativeImage } from 'electron';
+import fs from 'fs';
 import path from 'path';
 
 let dndEnabled = false;
@@ -20,13 +21,13 @@ export function showNativeNotification(
   if (!Notification.isSupported()) return;
   if (dndEnabled) return;
 
+  // Only pass the icon when the asset exists; otherwise let Electron use its default.
+  const iconPath = path.join(__dirname, '../../resources/icon.png');
   const notification = new Notification({
     title,
     body: body || '',
     silent: false,
-    icon: nativeImage.createFromPath(
-      path.join(__dirname, '../../resources/icon.png'),
-    ),
+    ...(fs.existsSync(iconPath) ? { icon: nativeImage.createFromPath(iconPath) } : {}),
     ...(tag ? { tag } : {}),
   });
 

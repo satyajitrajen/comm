@@ -3,6 +3,7 @@ import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../core/auth_notifier.dart';
 import '../../core/config.dart';
+import '../../core/socket_client.dart';
 
 class IncomingCall {
   IncomingCall({
@@ -30,58 +31,74 @@ class CallUiState {
 }
 
 class CallController extends Notifier<CallUiState> {
-  io.Socket? _socket;
   final _jitsi = JitsiMeet();
+  io.Socket? _socket;
+  TeamTimeSocket? _client;
 
   @override
-  CallUiState build() => const CallUiState();
-
-  void attachSocket(io.Socket socket) {
-    _socket = socket;
-    socket.on('call.incoming', (data) {
-      if (data is! Map) return;
-      if (state.inCall) return;
-      state = CallUiState(
-        incoming: IncomingCall(
-          conversationId: '${data['conversationId']}',
-          roomName: '${data['roomName']}',
-          callerId: '${data['callerId']}',
-          callerName: '${data['callerName']}',
-          conversationName: '${data['conversationName']}',
-          conversationType: data['conversationType']?.toString(),
-        ),
-      );
-    });
-    socket.on('call.accept', (_) {
-      state = const CallUiState(inCall: true);
-    });
-    socket.on('call.decline', (_) {
-      state = const CallUiState();
-    });
-    socket.on('call.end', (_) {
-      state = const CallUiState();
-    });
-    socket.on('call.cancel', (_) {
-      state = const CallUiState();
-    });
+  CallUiState build() {
+    final client = ref.watch(socketClientProvider);
+    if (!identical(_client, client)) {
+      _client = client;
+      client.onSocket(_attach);
+    }
+    return const CallUiState();
   }
+
+  void _attach(io.Socket socket) {
+    if (identical(_socket, socket)) return;
+    _socket = socket;
+    socket
+      ..on('call.incoming', _onIncoming)
+      ..on('call.accepted', _onAccepted)
+      ..on('call.declined', _onDeclined)
+      ..on('call.ended', _onEnded)
+      ..on('call.cancelled', _onCancelled);
+  }
+
+  void _onIncoming(dynamic data) {
+    if (data is! Map) return;
+    if (state.inCall) return;
+    state = CallUiState(
+      incoming: IncomingCall(
+        conversationId: '${data['conversationId']}',
+        roomName: '${data['roomName']}',
+        callerId: '${data['callerId']}',
+        callerName: '${data['callerName']}',
+        conversationName: '${data['conversationName']}',
+        conversationType: data['conversationType']?.toString(),
+      ),
+    );
+  }
+
+  void _onAccepted(dynamic _) => state = const CallUiState();
+  void _onDeclined(dynamic _) => state = const CallUiState();
+  void _onEnded(dynamic _) => state = const CallUiState();
+  void _onCancelled(dynamic _) => state = const CallUiState();
+
+  String? _activeConversationId;
+  String? _activeRoomName;
 
   Future<void> invite({
     required String conversationId,
     required String conversationName,
     required String conversationType,
-    io.Socket? socket,
   }) async {
-    final s = socket ?? _socket;
     final me = ref.read(authProvider).user;
-    s?.emit('call.invite', {
+    final room = callRoomName(conversationId);
+    _socket?.emit('call.invite', {
       'conversationId': conversationId,
-      'roomName': callRoomName(conversationId),
+      'roomName': room,
+      'callerName': (me?['displayName'] as String?) ?? 'User',
       'conversationName': conversationName,
       'conversationType': conversationType,
     });
     state = CallUiState(outgoingName: conversationName, inCall: false);
-    await joinRoom(callRoomName(conversationId), displayName: me?['displayName'] as String?);
+    await joinRoom(
+      room,
+      conversationId: conversationId,
+      displayName: me?['displayName'] as String?,
+    );
   }
 
   Future<void> accept() async {
@@ -94,7 +111,11 @@ class CallController extends Notifier<CallUiState> {
     });
     final me = ref.read(authProvider).user;
     state = const CallUiState(inCall: true);
-    await joinRoom(incoming.roomName, displayName: me?['displayName'] as String?);
+    await joinRoom(
+      incoming.roomName,
+      conversationId: incoming.conversationId,
+      displayName: me?['displayName'] as String?,
+    );
   }
 
   void decline() {
@@ -113,7 +134,26 @@ class CallController extends Notifier<CallUiState> {
     state = const CallUiState();
   }
 
-  Future<void> joinRoom(String roomName, {String? displayName}) async {
+  void endCall({String? conversationId, String? roomName}) {
+    final cid = conversationId ?? _activeConversationId;
+    final rname = roomName ?? _activeRoomName;
+    if (cid != null) {
+      final payload = <String, dynamic>{'conversationId': cid};
+      if (rname != null) payload['roomName'] = rname;
+      _socket?.emit('call.end', payload);
+    }
+    _activeConversationId = null;
+    _activeRoomName = null;
+    state = const CallUiState();
+  }
+
+  Future<void> joinRoom(
+    String roomName, {
+    String? conversationId,
+    String? displayName,
+  }) async {
+    _activeRoomName = roomName;
+    _activeConversationId = conversationId;
     final options = JitsiMeetConferenceOptions(
       serverURL: 'https://${AppConfig.jitsiServer}',
       room: roomName,
@@ -123,7 +163,12 @@ class CallController extends Notifier<CallUiState> {
       },
       userInfo: JitsiMeetUserInfo(displayName: displayName ?? 'User'),
     );
-    await _jitsi.join(options);
+    final listener = JitsiMeetEventListener(
+      conferenceTerminated: (url, error) {
+        endCall();
+      },
+    );
+    await _jitsi.join(options, listener);
   }
 }
 

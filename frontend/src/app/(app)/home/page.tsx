@@ -12,9 +12,7 @@ import {
   FileText,
   Hash,
   MessageSquare,
-  RefreshCw,
   Star,
-  Users,
 } from 'lucide-react';
 import { dashboardAPI } from '../../../services/api';
 import { formatDateTime, initials, avatarAccent, timeAgo } from '../_utils';
@@ -139,8 +137,6 @@ export default function HomePage() {
     const timer = window.setTimeout(loadDashboard, 0);
     return () => window.clearTimeout(timer);
   }, []);
-
-  const workspaceName = data?.workspace?.name ?? 'Your workspace';
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-slate-50">

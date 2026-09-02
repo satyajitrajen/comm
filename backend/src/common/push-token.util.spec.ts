@@ -1,7 +1,4 @@
-import {
-  isWebPushToken,
-  resolveStoredPushToken,
-} from './push-token.util';
+import { isWebPushToken, resolveStoredPushToken } from './push-token.util';
 
 describe('push-token.util', () => {
   it('treats VAPID subscription JSON as web push', () => {
@@ -24,12 +21,12 @@ describe('push-token.util', () => {
 
   it('stores WEB subscription as JSON string', () => {
     const subscription = { endpoint: 'https://example.com', keys: {} };
-    expect(
-      resolveStoredPushToken({ subscription, deviceType: 'WEB' }),
-    ).toEqual({
-      pushToken: JSON.stringify(subscription),
-      deviceType: 'WEB',
-    });
+    expect(resolveStoredPushToken({ subscription, deviceType: 'WEB' })).toEqual(
+      {
+        pushToken: JSON.stringify(subscription),
+        deviceType: 'WEB',
+      },
+    );
   });
 
   it('stores WEB Firebase JS token as an opaque FCM string', () => {

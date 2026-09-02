@@ -18,6 +18,8 @@ export interface ElectronAPI {
 declare global {
   interface Window {
     electronAPI?: ElectronAPI;
+    /** Mirrors active-call state for the Electron main process (close warning). */
+    __commInCall?: boolean;
   }
 }
 

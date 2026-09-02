@@ -5,6 +5,14 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    rules: {
+      // The codebase intentionally relies on mount-time state hydration
+      // (localStorage user, dialog resets, route-change drawer close) and
+      // fetch-on-mount patterns; refactoring them all is high risk / no gain.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

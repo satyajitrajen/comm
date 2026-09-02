@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MailService } from '../../common/mail.service';
@@ -33,7 +34,7 @@ export class CalendarService implements OnModuleInit {
     }, 60000);
   }
 
-  private async getWorkspaceId(userId: string) {
+  private async getActiveWorkspaceUser(userId: string) {
     const workspaceUser = await this.prisma.workspaceUser.findFirst({
       where: { userId, isActive: true },
     });
@@ -42,6 +43,25 @@ export class CalendarService implements OnModuleInit {
       throw new ForbiddenException('User is not part of an active workspace');
     }
 
+    return workspaceUser;
+  }
+
+  private assertEventManageable(
+    workspaceUser: { role: string },
+    createdBy: string | null,
+    userId: string,
+  ) {
+    const isAdmin =
+      workspaceUser.role === 'ADMIN' || workspaceUser.role === 'OWNER';
+    if (createdBy !== userId && !isAdmin) {
+      throw new ForbiddenException(
+        'Only the event creator or a workspace admin can modify this event',
+      );
+    }
+  }
+
+  private async getWorkspaceId(userId: string) {
+    const workspaceUser = await this.getActiveWorkspaceUser(userId);
     return workspaceUser.workspaceId;
   }
 
@@ -81,7 +101,13 @@ export class CalendarService implements OnModuleInit {
   }
 
   private async dispatchEventInvites(
-    event: any,
+    event: Prisma.CalendarEventGetPayload<{
+      include: {
+        attendees: {
+          include: { user: { include: { profile: true } } };
+        };
+      };
+    }>,
     targetUserIds: string[],
     organizerId?: string,
     isUpdate = false,
@@ -99,7 +125,8 @@ export class CalendarService implements OnModuleInit {
         include: { profile: true },
       });
       if (creator) {
-        organizerName = creator.profile?.displayName || creator.email || 'Someone';
+        organizerName =
+          creator.profile?.displayName || creator.email || 'Someone';
         organizerEmail = creator.email || undefined;
       }
     }
@@ -110,10 +137,11 @@ export class CalendarService implements OnModuleInit {
       include: { profile: true },
     });
 
-    const allAttendeesFormatted = event.attendees?.map((a: any) => ({
-      name: a.user?.profile?.displayName || a.user?.email || 'Attendee',
-      email: a.user?.email || '',
-    })) || [];
+    const allAttendeesFormatted =
+      event.attendees?.map((a) => ({
+        name: a.user?.profile?.displayName || a.user?.email || 'Attendee',
+        email: a.user?.email || '',
+      })) || [];
 
     const startsAt = new Date(event.startsAt);
     const endsAt = new Date(event.endsAt);
@@ -152,7 +180,8 @@ export class CalendarService implements OnModuleInit {
         this.mailService
           .sendCalendarInvite({
             to: attendeeUser.email,
-            recipientName: attendeeUser.profile?.displayName || attendeeUser.email,
+            recipientName:
+              attendeeUser.profile?.displayName || attendeeUser.email,
             event: {
               id: event.id,
               title: event.title,
@@ -290,7 +319,8 @@ export class CalendarService implements OnModuleInit {
       notifyAttendees?: boolean;
     },
   ) {
-    const workspaceId = await this.getWorkspaceId(userId);
+    const workspaceUser = await this.getActiveWorkspaceUser(userId);
+    const workspaceId = workspaceUser.workspaceId;
 
     const existing = await this.prisma.calendarEvent.findFirst({
       where: { id: eventId, workspaceId },
@@ -300,6 +330,8 @@ export class CalendarService implements OnModuleInit {
     if (!existing) {
       throw new NotFoundException('Calendar event not found');
     }
+
+    this.assertEventManageable(workspaceUser, existing.createdBy, userId);
 
     let startsAt = existing.startsAt;
     let endsAt = existing.endsAt;
@@ -343,8 +375,12 @@ export class CalendarService implements OnModuleInit {
         }
       }
 
-      const toAdd = newAttendeeIds.filter((id) => !prevAttendeeIds.includes(id));
-      const toRemove = prevAttendeeIds.filter((id) => !newAttendeeIds.includes(id));
+      const toAdd = newAttendeeIds.filter(
+        (id) => !prevAttendeeIds.includes(id),
+      );
+      const toRemove = prevAttendeeIds.filter(
+        (id) => !newAttendeeIds.includes(id),
+      );
 
       if (toRemove.length > 0) {
         await this.prisma.eventAttendee.deleteMany({
@@ -370,13 +406,19 @@ export class CalendarService implements OnModuleInit {
       data: {
         title: body.title !== undefined ? body.title.trim() : undefined,
         description:
-          body.description !== undefined ? body.description.trim() || null : undefined,
+          body.description !== undefined
+            ? body.description.trim() || null
+            : undefined,
         startsAt,
         endsAt,
         teamName:
-          body.teamName !== undefined ? body.teamName.trim() || null : undefined,
+          body.teamName !== undefined
+            ? body.teamName.trim() || null
+            : undefined,
         meetingLink:
-          body.meetingLink !== undefined ? body.meetingLink.trim() || null : undefined,
+          body.meetingLink !== undefined
+            ? body.meetingLink.trim() || null
+            : undefined,
       },
       include: {
         attendees: {
@@ -401,7 +443,12 @@ export class CalendarService implements OnModuleInit {
 
     // Send new invitation to newly added attendees
     if (newlyAddedAttendees.length > 0) {
-      await this.dispatchEventInvites(updated, newlyAddedAttendees, userId, false);
+      await this.dispatchEventInvites(
+        updated,
+        newlyAddedAttendees,
+        userId,
+        false,
+      );
     }
 
     // If notifyAttendees is true or event time changed significantly, notify existing attendees
@@ -411,7 +458,12 @@ export class CalendarService implements OnModuleInit {
       endsAt.getTime() !== existing.endsAt.getTime()
     ) {
       if (existingAttendees.length > 0) {
-        await this.dispatchEventInvites(updated, existingAttendees, userId, true);
+        await this.dispatchEventInvites(
+          updated,
+          existingAttendees,
+          userId,
+          true,
+        );
       }
     }
 
@@ -419,7 +471,8 @@ export class CalendarService implements OnModuleInit {
   }
 
   async deleteEvent(userId: string, eventId: string) {
-    const workspaceId = await this.getWorkspaceId(userId);
+    const workspaceUser = await this.getActiveWorkspaceUser(userId);
+    const workspaceId = workspaceUser.workspaceId;
 
     const existing = await this.prisma.calendarEvent.findFirst({
       where: { id: eventId, workspaceId },
@@ -429,6 +482,8 @@ export class CalendarService implements OnModuleInit {
     if (!existing) {
       throw new NotFoundException('Calendar event not found');
     }
+
+    this.assertEventManageable(workspaceUser, existing.createdBy, userId);
 
     // Delete attendees and event
     await this.prisma.eventAttendee.deleteMany({
@@ -480,6 +535,23 @@ export class CalendarService implements OnModuleInit {
         ? attendeeIds
         : event.attendees.map((a) => a.userId);
 
+    // Mirror createEvent/updateEvent: only invite workspace members.
+    const uniqueTargetIds = Array.from(new Set(targetIds));
+    if (uniqueTargetIds.length > 0) {
+      const memberCount = await this.prisma.workspaceUser.count({
+        where: {
+          workspaceId,
+          userId: { in: uniqueTargetIds },
+          isActive: true,
+        },
+      });
+      if (memberCount !== uniqueTargetIds.length) {
+        throw new BadRequestException(
+          'One or more attendees are not members of this workspace',
+        );
+      }
+    }
+
     await this.dispatchEventInvites(event, targetIds, userId, false);
 
     return {
@@ -519,7 +591,8 @@ export class CalendarService implements OnModuleInit {
         include: { profile: true },
       });
       if (creator) {
-        organizerName = creator.profile?.displayName || creator.email || 'Organizer';
+        organizerName =
+          creator.profile?.displayName || creator.email || 'Organizer';
         organizerEmail = creator.email || undefined;
       }
     }

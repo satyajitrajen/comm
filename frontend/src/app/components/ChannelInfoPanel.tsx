@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Edit3, LogOut, Shield, ShieldOff, Trash2, UserMinus, UserPlus, Volume2, VolumeX, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Edit3, LogOut, Trash2, UserMinus, UserPlus, Volume2, VolumeX, X } from 'lucide-react';
 import { chatsAPI, usersAPI } from '../../services/api';
 import { avatarAccent, initials } from '../(app)/_utils';
 import ConfirmDialog from './ConfirmDialog';
@@ -77,7 +77,6 @@ function roleBadgeClass(role: string) {
 export default function ChannelInfoPanel({
   conversationId,
   channelName,
-  isMember,
   currentUserId,
   onClose,
   onMembersChanged,
@@ -104,7 +103,7 @@ export default function ChannelInfoPanel({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState(false);
 
-  async function loadDetails() {
+  const loadDetails = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -119,11 +118,11 @@ export default function ChannelInfoPanel({
     } finally {
       setLoading(false);
     }
-  }
+  }, [conversationId, channelName]);
 
   useEffect(() => {
     void loadDetails();
-  }, [conversationId]);
+  }, [loadDetails]);
 
   const canAddMembers = useMemo(() => {
     return !!details?.isMember && !details?.group?.isReadOnly;

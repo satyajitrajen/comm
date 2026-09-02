@@ -9,7 +9,10 @@ import 'session.dart';
 final sessionProvider = Provider<SecureSession>((ref) => SecureSession());
 
 final apiClientProvider = Provider<ApiClient>((ref) {
-  return ApiClient(ref.watch(sessionProvider));
+  return ApiClient(
+    ref.watch(sessionProvider),
+    onSessionExpired: () => ref.read(authProvider.notifier).forceSignOut(),
+  );
 });
 
 class AuthState {
@@ -115,6 +118,10 @@ class AuthNotifier extends Notifier<AuthState> {
         );
       }
     } catch (_) {}
+    await forceSignOut();
+  }
+
+  Future<void> forceSignOut() async {
     await _session.clear();
     state = const AuthState(booting: false);
   }

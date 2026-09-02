@@ -7,18 +7,12 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  Clock,
   Plus,
   RefreshCw,
   X,
-  ArrowUpRight,
   Search,
   Pencil,
   Trash2,
-  Mail,
-  Download,
-  Copy,
-  Check,
   Users,
   Video,
   AlertCircle,
@@ -29,10 +23,16 @@ import {
 import { calendarAPI, tasksAPI, usersAPI } from '../../../services/api';
 import { getChatsFeedCached } from '../../../lib/chatsFeedCache';
 import { formatDateTime } from '../_utils';
-import { calendarStatusLabel } from '../../../lib/enumLabels';
-import Portal from '../../components/Portal';
 import { SearchDropdown } from '../../components/SearchDropdown';
+import Portal from '../../components/Portal';
 import ConfirmDialog from '../../components/ConfirmDialog';
+
+type DirectoryPerson = {
+  userId: string;
+  displayName: string;
+  email?: string | null;
+  department?: string | null;
+};
 
 type CalendarTask = {
   id: string;
@@ -123,13 +123,6 @@ const monthsShort = [
   'Nov',
   'Dec',
 ];
-
-function priorityColor(priority: string) {
-  if (priority === 'EVENT') return 'bg-blue-600';
-  if (priority === 'URGENT') return 'bg-rose-500';
-  if (priority === 'IMPORTANT') return 'bg-amber-500';
-  return 'bg-slate-400';
-}
 
 function eventItem(event: CalendarEvent): CalendarItem {
   return {
@@ -241,8 +234,6 @@ export default function CalendarPage() {
   
   const [modalError, setModalError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [sendingInviteId, setSendingInviteId] = useState<string | null>(null);
-  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
 
   // Delete Confirmation
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -250,7 +241,7 @@ export default function CalendarPage() {
   const [deleting, setDeleting] = useState(false);
 
   const [teams, setTeams] = useState<string[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<DirectoryPerson[]>([]);
 
   // Load Teams and Directory Users
   useEffect(() => {
@@ -411,9 +402,11 @@ export default function CalendarPage() {
         showToast(`Event "${title}" updated successfully!`);
       }
       setModalMode(null);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || 'Event could not be saved.';
-      setModalError(msg);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message ||
+        'Event could not be saved.';
+      setModalError(Array.isArray(msg) ? msg.join(', ') : String(msg));
     } finally {
       setSubmitting(false);
     }
@@ -433,35 +426,6 @@ export default function CalendarPage() {
       showToast('Failed to delete event.', 'error');
     } finally {
       setDeleting(false);
-    }
-  }
-
-  async function handleSendInvites(rawEventId: string, eventTitleStr: string) {
-    setSendingInviteId(rawEventId);
-    try {
-      const res = await calendarAPI.sendInvites(rawEventId);
-      showToast(res.message || `Calendar invites sent for "${eventTitleStr}"!`);
-    } catch {
-      showToast('Failed to send calendar invites.', 'error');
-    } finally {
-      setSendingInviteId(null);
-    }
-  }
-
-  async function handleDownloadIcs(rawEventId: string, titleStr: string) {
-    try {
-      const res = await calendarAPI.downloadIcs(rawEventId);
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/calendar' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${titleStr.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'event'}.ics`);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode?.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      showToast('Calendar .ics file downloaded!');
-    } catch {
-      showToast('Failed to download calendar invite file.', 'error');
     }
   }
 

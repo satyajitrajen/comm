@@ -1,14 +1,19 @@
 import { Tray, Menu, app, BrowserWindow, nativeImage, ipcMain } from 'electron';
+import fs from 'fs';
 import path from 'path';
 import { setDndEnabled } from './notification';
 
 let tray: Tray | null = null;
 
 export function setupSystemTray(mainWindow: BrowserWindow): Tray {
-  // Create a 16x16 icon programmatically or load blank native image if asset missing
-  const icon = nativeImage.createEmpty();
+  // Load resources/icon.png if present; drop a real icon there and it is picked up automatically.
+  const iconPath = path.join(__dirname, '../../resources/icon.png');
+  const icon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : nativeImage.createEmpty();
   tray = new Tray(icon);
   tray.setToolTip('Comm Desktop');
+  tray.setTitle('TeamTime');
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -51,7 +56,7 @@ export function setupSystemTray(mainWindow: BrowserWindow): Tray {
   return tray;
 }
 
-function setTrayStatus(status: 'online' | 'away' | 'dnd') {
+export function setTrayStatus(status: 'online' | 'away' | 'dnd') {
   console.log(`[Tray] User set status to: ${status}`);
   setDndEnabled(status === 'dnd');
   // Notify renderer so it can suppress browser notifications too

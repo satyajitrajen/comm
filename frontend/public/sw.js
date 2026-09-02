@@ -7,6 +7,12 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
+/** Only same-origin relative paths may be navigated to from a push payload. */
+function safeNotificationUrl(url) {
+  if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) return url;
+  return '/';
+}
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -16,22 +22,23 @@ self.addEventListener('push', (event) => {
   }
 
   const title = payload.title || 'TeamTime';
+  const url = safeNotificationUrl(payload.url);
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body || '',
       icon: '/teamtime-favicon.png',
       badge: '/teamtime-favicon.png',
       // Collapses repeat notifications from the same conversation.
-      tag: payload.url || 'teamtime',
+      tag: url || 'teamtime',
       renotify: true,
-      data: { url: payload.url || '/home' },
+      data: { url: url || '/home' },
     }),
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || '/home';
+  const target = safeNotificationUrl(event.notification.data && event.notification.data.url);
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {

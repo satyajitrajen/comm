@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { io } from 'socket.io-client';
-import { Mail, MessageSquare, RefreshCw, Search, Users, X, Radio } from 'lucide-react';
+import { Mail, MessageSquare, RefreshCw, Search, Users, X } from 'lucide-react';
 import { chatsAPI, usersAPI, adminAPI } from '../../../services/api';
-import { resolveServiceBaseUrl } from '../../../lib/desktopRuntime';
+import { createAppSocket } from '../../../lib/socket';
 import { avatarAccent, initials } from '../_utils';
 import { isOnline, statusDotClass, statusLabel } from '../../../lib/statusAvailability';
 import { roleLabel } from '../../../lib/enumLabels';
@@ -84,11 +83,8 @@ export default function PeoplePage() {
 
   // Live WebSocket presence update
   useEffect(() => {
-    const socketUrl = resolveServiceBaseUrl();
-    const token = typeof window !== 'undefined' ? localStorage.getItem('veloce_token') : null;
-    if (!token) return;
-
-    const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+    const socket = createAppSocket();
+    if (!socket) return;
 
     socket.on('user.presence', (data: { userId: string; presence?: string; isOnline?: boolean }) => {
       if (!data?.userId) return;

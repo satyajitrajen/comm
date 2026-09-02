@@ -1,7 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   FileUp,
@@ -143,7 +142,6 @@ function formatLastSeen(value?: string | null): string {
 }
 
 export default function SettingsPage() {
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'users' | 'approval' | 'roles'>('users');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [approvalDraft, setApprovalDraft] = useState<ApprovalSettings | null>(null);
@@ -183,7 +181,7 @@ export default function SettingsPage() {
   const canManageSettings = hasCapability(sessionUser, 'manageSettings');
   const canManageRoles = hasCapability(sessionUser, 'manageRoles');
 
-  async function loadSettings() {
+  const loadSettings = useCallback(async () => {
     setLoading(true);
     setError('');
     const session = readSessionUser();
@@ -243,14 +241,14 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       loadSettings();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [loadSettings]);
 
   useEffect(() => {
     if (!formMode && !showImportModal) return;

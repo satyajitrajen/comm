@@ -29,24 +29,54 @@ function typeBg(type: string) {
   return 'bg-violet-50';
 }
 
+const PAGE_SIZE = 30;
+
 export default function ActivityPage() {
   const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState('');
 
   async function loadNotifications() {
     setLoading(true);
     setError('');
     try {
-      const data = await notificationsAPI.getAll();
-      setNotifications(Array.isArray(data?.items) ? data.items : []);
+      const data = await notificationsAPI.getAll(1, PAGE_SIZE);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setNotifications(items);
+      setPage(1);
+      setHasMore(items.length >= PAGE_SIZE);
     } catch {
       setError('Activity could not be loaded.');
       setNotifications([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMoreNotifications() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    setError('');
+    try {
+      const next = page + 1;
+      const data = await notificationsAPI.getAll(next, PAGE_SIZE);
+      const items: Notification[] = Array.isArray(data?.items) ? data.items : [];
+      setNotifications((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        return [...current, ...items.filter((item) => !seen.has(item.id))];
+      });
+      setPage(next);
+      setHasMore(items.length >= PAGE_SIZE);
+    } catch {
+      setError('Activity could not be loaded.');
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -190,6 +220,18 @@ export default function ActivityPage() {
                 {!notification.isRead && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-600" />}
               </button>
             ))}
+          </div>
+        )}
+
+        {hasMore && !loading && displayed.length > 0 && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={loadMoreNotifications}
+              disabled={loadingMore}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {loadingMore ? 'Loading...' : 'Load more'}
+            </button>
           </div>
         )}
       </main>

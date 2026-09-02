@@ -5,7 +5,12 @@ import * as path from 'path';
 import * as webpush from 'web-push';
 import * as admin from 'firebase-admin';
 import { PrismaService } from '../prisma.service';
-import { isWebPushToken, resolveStoredPushToken } from './push-token.util';
+import {
+  ALLOWED_PUSH_DEVICE_TYPES,
+  isWebPushToken,
+  MAX_PUSH_TOKEN_LENGTH,
+  resolveStoredPushToken,
+} from './push-token.util';
 
 /**
  * VAPID JSON subscriptions use web-push. Opaque FCM strings (Android, iOS, or
@@ -58,7 +63,9 @@ export class PushService {
             ? credPath
             : path.resolve(process.cwd(), credPath);
           if (!fs.existsSync(resolved)) {
-            throw new Error(`FIREBASE_SERVICE_ACCOUNT_PATH not found: ${resolved}`);
+            throw new Error(
+              `FIREBASE_SERVICE_ACCOUNT_PATH not found: ${resolved}`,
+            );
           }
           admin.initializeApp({
             credential: admin.credential.cert(resolved),
@@ -93,6 +100,21 @@ export class PushService {
     } catch (error) {
       throw new BadRequestException(
         error instanceof Error ? error.message : 'Invalid push payload',
+      );
+    }
+    // Defense in depth: the upsert must never persist an oversized token or
+    // an unknown device type even if resolveStoredPushToken changes.
+    if (
+      resolved.pushToken.length < 1 ||
+      resolved.pushToken.length > MAX_PUSH_TOKEN_LENGTH
+    ) {
+      throw new BadRequestException(
+        `Push token must be between 1 and ${MAX_PUSH_TOKEN_LENGTH} characters`,
+      );
+    }
+    if (!ALLOWED_PUSH_DEVICE_TYPES.includes(resolved.deviceType as never)) {
+      throw new BadRequestException(
+        `Device type must be one of: ${ALLOWED_PUSH_DEVICE_TYPES.join(', ')}`,
       );
     }
     await this.prisma.device.upsert({
@@ -160,7 +182,8 @@ export class PushService {
           }
           if (!this.fcm) return;
           const url = payload.url || '/home';
-          const isNative = device.deviceType === 'ANDROID' || device.deviceType === 'IOS';
+          const isNative =
+            device.deviceType === 'ANDROID' || device.deviceType === 'IOS';
           await this.fcm.send({
             token: device.pushToken,
             data: { title: payload.title, body: payload.body, url },

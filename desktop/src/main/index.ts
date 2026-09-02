@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import { setupSystemTray } from './tray';
+import { setupSystemTray, setTrayStatus } from './tray';
 import { showNativeNotification } from './notification';
 
 function loadDesktopEnvFile() {
@@ -87,6 +87,23 @@ function isAllowedFrontendNavigation(targetUrl: string, allowedOrigin: string): 
   }
 }
 
+function isSafeExternalUrl(targetUrl: string): boolean {
+  try {
+    const protocol = new URL(targetUrl).protocol;
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:';
+  } catch {
+    return false;
+  }
+}
+
+function openExternalIfSafe(targetUrl: string) {
+  if (isSafeExternalUrl(targetUrl)) {
+    void shell.openExternal(targetUrl);
+  } else {
+    console.warn(`[desktop] Ignored non-http(s)/mailto URL: ${targetUrl}`);
+  }
+}
+
 function createWindow(startUrl: string) {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -101,7 +118,7 @@ function createWindow(startUrl: string) {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
       partition: 'persist:comm-desktop',
     },
   });
@@ -120,14 +137,14 @@ function createWindow(startUrl: string) {
     if (isAllowedFrontendNavigation(url, startUrl)) {
       return { action: 'allow' };
     }
-    void shell.openExternal(url);
+    openExternalIfSafe(url);
     return { action: 'deny' };
   });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isAllowedFrontendNavigation(url, startUrl)) {
       event.preventDefault();
-      void shell.openExternal(url);
+      openExternalIfSafe(url);
     }
   });
 
@@ -217,7 +234,8 @@ ipcMain.on(
 );
 
 ipcMain.on('tray:setStatus', (_event, status: 'online' | 'away' | 'dnd') => {
-  console.log(`[Tray] User set status to: ${status}`);
+  if (status !== 'online' && status !== 'away' && status !== 'dnd') return;
+  setTrayStatus(status);
 });
 
 app.whenReady().then(async () => {

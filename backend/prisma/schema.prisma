@@ -196,6 +196,8 @@ model Message {
   tasks              Task[]
   polls              Poll?
   starredMessages    StarredMessage[]
+
+  @@index([conversationId])
 }
 
 model MessageRead {
@@ -302,6 +304,8 @@ model Device {
   pushToken  String   @unique
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model LoginSession {
@@ -363,6 +367,8 @@ model Notification {
   notificationType String // MENTION, TASK_ASSIGNED, SYSTEM_ALERT
   resourceId       String?
   createdAt        DateTime @default(now())
+
+  @@index([userId])
 }
 
 model BlockedUser {

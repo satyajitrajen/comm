@@ -22,7 +22,8 @@ export function serializeBigInts<T>(value: T): T {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => serializeBigInts(item)) as unknown as T;
+    const arr: unknown[] = value as unknown[];
+    return arr.map((item) => serializeBigInts(item)) as unknown as T;
   }
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};

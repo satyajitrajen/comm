@@ -2,7 +2,6 @@
  * Runtime helpers when the Next.js app is embedded in the Electron desktop shell.
  */
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
 declare global {
   interface Window {
     electronAPI?: {
@@ -20,7 +19,6 @@ declare global {
     __commInCall?: boolean;
   }
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */
 
 let cachedApiUrl: string | null | undefined;
 
@@ -66,7 +64,9 @@ function adjustLocalhostForRemoteBrowser(urlStr: string): string {
 /**
  * Resolve HTTP API / Socket.IO base URL.
  * Prefer Electron-injected DESKTOP_API_URL, then Next public env.
- * Dynamically adjusts localhost to current window hostname if accessed from a network device.
+ * The host:5000 fallback only applies outside production — production builds
+ * must set NEXT_PUBLIC_API_URL/NEXT_PUBLIC_SOCKET_URL explicitly and otherwise
+ * use same-origin relative paths.
  */
 export function resolveServiceBaseUrl(): string {
   const fromDesktop = getDesktopApiUrl();
@@ -79,7 +79,11 @@ export function resolveServiceBaseUrl(): string {
     return adjustLocalhostForRemoteBrowser(process.env.NEXT_PUBLIC_API_URL);
   }
 
-  if (typeof window !== 'undefined' && window.location?.hostname) {
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    typeof window !== 'undefined' &&
+    window.location?.hostname
+  ) {
     const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
     return `${protocol}//${window.location.hostname}:5000`;
   }

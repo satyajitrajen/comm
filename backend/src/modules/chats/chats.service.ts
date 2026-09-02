@@ -332,6 +332,10 @@ export class ChatsService {
     const actorMember = group.members.find((m) => m.userId === userId);
     const isOwner = actorMember?.role === 'OWNER' || group.createdBy === userId;
 
+    if (!actorMember) {
+      throw new ForbiddenException('You are not a member of this channel');
+    }
+
     if (isOwner) {
       if (!transferOwnerTo) {
         throw new BadRequestException(
