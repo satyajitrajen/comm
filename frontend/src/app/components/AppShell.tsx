@@ -28,6 +28,7 @@ import {
 import { ChangeEvent, FormEvent, useState, useEffect, useRef, type ReactNode } from 'react';
 import { usersAPI, notificationsAPI, authAPI, messagesAPI, filesAPI, type MessageSearchHit } from '../../services/api';
 import { toPlainText } from '../../lib/mentions';
+import { isValidName, sanitizeName } from '../../lib/nameValidation';
 import { useChatStore } from '../../store/useChatStore';
 import { useNotifications } from '../../hooks/useNotifications';
 import { createAppSocket } from '../../lib/socket';
@@ -490,6 +491,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setSavingProfile(true);
     setProfileError('');
     setProfileSuccess('');
+
+    if (!isValidName(displayNameInput)) {
+      setProfileError('Symbols and special characters are not allowed in Display name.');
+      setSavingProfile(false);
+      return;
+    }
+
     try {
       const updated = await usersAPI.updateProfile({
         displayName: displayNameInput.trim(),
@@ -1275,7 +1283,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 Display name
                 <input
                   value={displayNameInput}
-                  onChange={(event) => setDisplayNameInput(event.target.value)}
+                  onChange={(event) => setDisplayNameInput(sanitizeName(event.target.value))}
                   className="mt-1 block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 bg-white placeholder-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 transition-all"
                   required
                 />

@@ -3,6 +3,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   FileUp,
   KeyRound,
   RefreshCw,
@@ -10,9 +13,12 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  UserCheck,
   UserPlus,
   Users,
+  UserX,
   X,
+  XCircle,
 } from 'lucide-react';
 import { adminAPI } from '../../../services/api';
 import Portal from '../../components/Portal';
@@ -28,12 +34,9 @@ import {
   type RolePermissionsMap,
   type WorkspaceRole,
 } from '../../../lib/permissions';
-import {
-  AVAILABILITY_PICKER_OPTIONS,
-  statusDotClass,
-  statusLabel,
-} from '../../../lib/statusAvailability';
+import { AVAILABILITY_PICKER_OPTIONS } from '../../../lib/statusAvailability';
 import { roleLabel } from '../../../lib/enumLabels';
+import { isValidName, sanitizeName } from '../../../lib/nameValidation';
 
 type AdminUser = {
   userId: string;
@@ -270,12 +273,35 @@ export default function SettingsPage() {
   const filteredUsers = useMemo(() => {
     const q = query.trim().toLowerCase();
     return users.filter((user) => {
-      if (q && !`${user.displayName} ${user.email || ''} ${user.role} ${user.department || ''}`.toLowerCase().includes(q)) return false;
+      const statusText = user.isActive ? 'active' : 'inactive';
+      if (
+        q &&
+        !`${user.displayName} ${user.email || ''} ${user.role} ${user.department || ''} ${statusText}`
+          .toLowerCase()
+          .includes(q)
+      ) {
+        return false;
+      }
       if (roleFilter !== 'ALL' && user.role !== roleFilter) return false;
       if (departmentFilter !== 'ALL' && (user.department || 'General') !== departmentFilter) return false;
       return true;
     });
   }, [query, roleFilter, departmentFilter, users]);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, roleFilter, departmentFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredUsers.slice(start, start + pageSize);
+  }, [filteredUsers, safePage, pageSize]);
 
   const activeUsers = users.filter((user) => user.isActive).length;
   const adminUsers = users.filter((user) => ['OWNER', 'ADMIN'].includes(user.role)).length;
@@ -345,6 +371,10 @@ export default function SettingsPage() {
 
     if (!userForm.displayName.trim() || !userForm.email.trim()) {
       setFormError('Name and email are required.');
+      return;
+    }
+    if (!isValidName(userForm.displayName)) {
+      setFormError('Symbols and special characters are not allowed in Name.');
       return;
     }
     const currentId = sessionUser?.id || sessionUser?.userId;
@@ -566,10 +596,48 @@ export default function SettingsPage() {
             </div>
 
             {activeTab === 'users' ? (
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                <span>{users.length} total</span>
-                <span>{activeUsers} active</span>
-                <span>{adminUsers} admins</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Total */}
+                <div
+                  className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-2xs transition hover:border-slate-300"
+                  title="Total registered users"
+                >
+                  <Users className="h-4 w-4 text-slate-500 shrink-0" />
+                  <span className="text-xs font-extrabold text-slate-900">{users.length}</span>
+                  <span className="text-xs font-medium text-slate-500">total</span>
+                </div>
+
+                {/* Active */}
+                <div
+                  className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 shadow-2xs transition hover:bg-emerald-100/50"
+                  title="Active accounts"
+                >
+                  <UserCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span className="text-xs font-extrabold text-emerald-900">{activeUsers}</span>
+                  <span className="text-xs font-semibold text-emerald-700">active</span>
+                </div>
+
+                {/* Inactive (if any) */}
+                {users.length - activeUsers > 0 && (
+                  <div
+                    className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-1.5 shadow-2xs transition hover:bg-amber-100/50"
+                    title="Inactive accounts"
+                  >
+                    <UserX className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span className="text-xs font-extrabold text-amber-900">{users.length - activeUsers}</span>
+                    <span className="text-xs font-semibold text-amber-700">inactive</span>
+                  </div>
+                )}
+
+                {/* Admins */}
+                <div
+                  className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-1.5 shadow-2xs transition hover:bg-blue-100/50"
+                  title="Workspace administrators"
+                >
+                  <ShieldCheck className="h-4 w-4 text-blue-700 shrink-0" />
+                  <span className="text-xs font-extrabold text-blue-900">{adminUsers}</span>
+                  <span className="text-xs font-semibold text-blue-700">admins</span>
+                </div>
               </div>
             ) : null}
           </div>
@@ -638,6 +706,7 @@ export default function SettingsPage() {
                     <table className="w-full min-w-[760px] text-left text-sm">
                       <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                         <tr>
+                          <th className="w-16 px-4 py-3 text-slate-500">Sr No</th>
                           <th className="px-4 py-3">User</th>
                           <th className="px-4 py-3">Role</th>
                           <th className="px-4 py-3">Department</th>
@@ -649,13 +718,17 @@ export default function SettingsPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredUsers.map((user) => {
+                        {paginatedUsers.map((user, index) => {
                           const isCurrentUser = Boolean(
                             (sessionUser?.id && user.userId === sessionUser.id) ||
                             (sessionUser?.userId && user.userId === sessionUser.userId)
                           );
+                          const srNo = (safePage - 1) * pageSize + index + 1;
                           return (
                             <tr key={user.userId} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 text-xs font-semibold text-slate-400">
+                                {srNo}
+                              </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1.5">
                                   <span className="font-semibold text-slate-950">{user.displayName}</span>
@@ -674,9 +747,19 @@ export default function SettingsPage() {
                             </td>
                             <td className="px-4 py-3 text-slate-600">{user.department || 'General'}</td>
                             <td className="px-4 py-3">
-                              <span className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-                                <span className={`h-2 w-2 rounded-full ${user.isActive ? statusDotClass(user) : 'bg-slate-300'}`} />
-                                {user.isActive ? statusLabel(user) : 'Inactive'}
+                              <span
+                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                  user.isActive
+                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                    : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                }`}
+                              >
+                                {user.isActive ? (
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                ) : (
+                                  <XCircle className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                )}
+                                <span>{user.isActive ? 'Active' : 'Inactive'}</span>
                               </span>
                             </td>
                             <td className="px-4 py-3 text-slate-500">{formatLastSeen(user.lastLoginAt)}</td>
@@ -695,6 +778,70 @@ export default function SettingsPage() {
                         })}
                       </tbody>
                     </table>
+
+                    {/* Pagination Footer */}
+                    {filteredUsers.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-4 py-3 text-xs font-medium text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <span>
+                            Showing <span className="font-bold text-slate-900">{(safePage - 1) * pageSize + 1}</span> to{' '}
+                            <span className="font-bold text-slate-900">
+                              {Math.min(safePage * pageSize, filteredUsers.length)}
+                            </span>{' '}
+                            of <span className="font-bold text-slate-900">{filteredUsers.length}</span> users
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          {/* Rows Per Page */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-500">Rows per page:</span>
+                            <select
+                              value={pageSize}
+                              onChange={(e) => {
+                                setPageSize(Number(e.target.value));
+                                setPage(1);
+                              }}
+                              className="h-8 rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-500 cursor-pointer"
+                            >
+                              {[10, 25, 50, 100].map((size) => (
+                                <option key={size} value={size}>
+                                  {size}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Navigation Buttons */}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={safePage <= 1}
+                              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+                              title="Previous page"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+
+                            <span className="px-2 font-semibold text-slate-700">
+                              Page <span className="font-bold text-slate-950">{safePage}</span> of{' '}
+                              <span className="font-bold text-slate-950">{totalPages}</span>
+                            </span>
+
+                            <button
+                              type="button"
+                              disabled={safePage >= totalPages}
+                              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer disabled:cursor-not-allowed shadow-2xs"
+                              title="Next page"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -963,7 +1110,12 @@ export default function SettingsPage() {
                       </label>
                       <input
                         value={userForm.displayName}
-                        onChange={(event) => setUserForm((current) => ({ ...current, displayName: event.target.value }))}
+                        onChange={(event) =>
+                          setUserForm((current) => ({
+                            ...current,
+                            displayName: sanitizeName(event.target.value),
+                          }))
+                        }
                         className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-sm outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10"
                         placeholder="User full name"
                         required

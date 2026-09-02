@@ -51,10 +51,22 @@ export class UsersService {
       statusAvailability?: string;
     },
   ) {
+    let displayName = body.displayName?.trim();
+    if (displayName !== undefined) {
+      if (!displayName) {
+        throw new BadRequestException('Display name cannot be empty');
+      }
+      if (/[^\p{L}\p{N}\s.'-]/u.test(displayName)) {
+        throw new BadRequestException(
+          'Display name cannot contain symbols or special characters',
+        );
+      }
+    }
+
     const profile = await this.prisma.userProfile.update({
       where: { userId },
       data: {
-        displayName: body.displayName,
+        displayName: displayName ?? undefined,
         aboutText: body.aboutText,
         avatarUrl: body.avatarUrl,
         statusAvailability: this.normalizeAvailability(body.statusAvailability),

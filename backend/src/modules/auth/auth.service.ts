@@ -58,6 +58,15 @@ export class AuthService {
     if (!body.password?.trim()) {
       throw new BadRequestException('Password is required');
     }
+    const displayName = body.displayName?.trim();
+    if (!displayName) {
+      throw new BadRequestException('Display name is required');
+    }
+    if (/[^\p{L}\p{N}\s.'-]/u.test(displayName)) {
+      throw new BadRequestException(
+        'Display name cannot contain symbols or special characters',
+      );
+    }
 
     if (body.email) {
       const existing = await this.prisma.user.findUnique({

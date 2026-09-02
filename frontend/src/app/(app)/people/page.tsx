@@ -8,6 +8,7 @@ import { createAppSocket } from '../../../lib/socket';
 import { avatarAccent, initials } from '../_utils';
 import { isOnline, statusDotClass, statusLabel } from '../../../lib/statusAvailability';
 import { roleLabel } from '../../../lib/enumLabels';
+import { sanitizeName } from '../../../lib/nameValidation';
 
 type Person = {
   userId: string;
@@ -166,7 +167,7 @@ export default function PeoplePage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => setQuery(sanitizeName(event.target.value))}
                 className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:bg-white"
                 placeholder="Search people..."
               />

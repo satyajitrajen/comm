@@ -172,6 +172,16 @@ export class AdminService {
     return normalized;
   }
 
+  private normalizeDisplayName(value: string | undefined, label = 'Display name') {
+    const text = this.normalizeRequiredText(value, label);
+    if (/[^\p{L}\p{N}\s.'-]/u.test(text)) {
+      throw new BadRequestException(
+        `${label} cannot contain symbols or special characters`,
+      );
+    }
+    return text;
+  }
+
   private normalizeOptionalText(value: string | null | undefined) {
     if (value === undefined) return undefined;
     const normalized = value?.trim();
@@ -439,7 +449,7 @@ export class AdminService {
   async createUser(adminUserId: string, body: CreateUserBody) {
     const actor = await this.assertCapability(adminUserId, 'manageUsers');
     const email = this.normalizeRequiredText(body.email, 'Email').toLowerCase();
-    const displayName = this.normalizeRequiredText(
+    const displayName = this.normalizeDisplayName(
       body.displayName,
       'Display name',
     );
@@ -597,7 +607,7 @@ export class AdminService {
       displayName:
         body.displayName === undefined
           ? undefined
-          : this.normalizeRequiredText(body.displayName, 'Display name'),
+          : this.normalizeDisplayName(body.displayName, 'Display name'),
       aboutText:
         body.aboutText === undefined
           ? undefined

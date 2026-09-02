@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Building2, Lock, Mail, Send, User } from 'lucide-react';
 import PasswordInput from '../components/PasswordInput';
 import { authAPI, persistAuthTokens } from '../../services/api';
+import { isValidName, sanitizeName } from '../../lib/nameValidation';
 
 type AuthResponse = {
   accessToken: string;
@@ -45,6 +46,11 @@ export default function RegisterPage() {
 
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
+      return;
+    }
+
+    if (!isValidName(displayName)) {
+      setError('Symbols and special characters are not allowed in Full name.');
       return;
     }
 
@@ -99,7 +105,7 @@ export default function RegisterPage() {
               <User className="h-4 w-4 text-slate-400" />
               <input
                 value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
+                onChange={(event) => setDisplayName(sanitizeName(event.target.value))}
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 autoComplete="name"
                 required
