@@ -347,6 +347,14 @@ export default function SettingsPage() {
       setFormError('Name and email are required.');
       return;
     }
+    const currentId = sessionUser?.id || sessionUser?.userId;
+    const isSelf = Boolean(userForm.userId && userForm.userId === currentId);
+
+    if (isSelf && !userForm.isActive) {
+      setFormError('You cannot deactivate your own account.');
+      return;
+    }
+
     if (formMode === 'create' && userForm.password.trim().length < 8) {
       setFormError('Password must be at least 8 characters.');
       return;
@@ -641,12 +649,24 @@ export default function SettingsPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredUsers.map((user) => (
-                          <tr key={user.userId} className="hover:bg-slate-50">
-                            <td className="px-4 py-3">
-                              <div className="font-semibold text-slate-950">{user.displayName}</div>
-                              <div className="text-xs text-slate-500">{user.email || 'No email'}</div>
-                            </td>
+                        {filteredUsers.map((user) => {
+                          const isCurrentUser = Boolean(
+                            (sessionUser?.id && user.userId === sessionUser.id) ||
+                            (sessionUser?.userId && user.userId === sessionUser.userId)
+                          );
+                          return (
+                            <tr key={user.userId} className="hover:bg-slate-50">
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-slate-950">{user.displayName}</span>
+                                  {isCurrentUser && (
+                                    <span className="rounded-md bg-blue-50 border border-blue-200 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+                                      You
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-slate-500">{user.email || 'No email'}</div>
+                              </td>
                             <td className="px-4 py-3">
                               <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
                                 {roleLabel(user.role)}
@@ -670,8 +690,9 @@ export default function SettingsPage() {
                                 Edit
                               </button>
                             </td>
-                          </tr>
-                        ))}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1004,9 +1025,14 @@ export default function SettingsPage() {
                         Role
                       </label>
                       <select
+                        disabled={Boolean(userForm.userId && (userForm.userId === sessionUser?.id || userForm.userId === sessionUser?.userId))}
                         value={userForm.role}
                         onChange={(event) => setUserForm((current) => ({ ...current, role: event.target.value }))}
-                        className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-sm outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10 cursor-pointer"
+                        className={`h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-sm outline-none transition-all focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10 cursor-pointer ${
+                          userForm.userId && (userForm.userId === sessionUser?.id || userForm.userId === sessionUser?.userId)
+                            ? 'opacity-60 cursor-not-allowed bg-slate-100'
+                            : ''
+                        }`}
                       >
                         {ROLE_OPTIONS.map((role) => (
                           <option key={role} value={role}>
@@ -1014,6 +1040,11 @@ export default function SettingsPage() {
                           </option>
                         ))}
                       </select>
+                      {userForm.userId && (userForm.userId === sessionUser?.id || userForm.userId === sessionUser?.userId) && (
+                        <span className="mt-1 block text-xs font-normal text-slate-400">
+                          You cannot modify your own administrative role.
+                        </span>
+                      )}
                     </div>
 
                     {/* Status */}
@@ -1055,15 +1086,39 @@ export default function SettingsPage() {
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         Account Status
                       </label>
-                      <label className="flex h-10 items-center justify-between rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors">
-                        <span>Active user</span>
-                        <input
-                          type="checkbox"
-                          checked={userForm.isActive}
-                          onChange={(event) => setUserForm((current) => ({ ...current, isActive: event.target.checked }))}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-500 cursor-pointer"
-                        />
-                      </label>
+                      {(() => {
+                        const isSelf = Boolean(
+                          userForm.userId &&
+                            (userForm.userId === sessionUser?.id || userForm.userId === sessionUser?.userId),
+                        );
+                        return (
+                          <>
+                            <label
+                              className={`flex h-10 items-center justify-between rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-sm font-medium text-slate-700 transition-colors ${
+                                isSelf ? 'opacity-60 cursor-not-allowed bg-slate-100' : 'hover:bg-slate-50 cursor-pointer'
+                              }`}
+                            >
+                              <span>Active user</span>
+                              <input
+                                type="checkbox"
+                                disabled={isSelf}
+                                checked={isSelf ? true : userForm.isActive}
+                                onChange={(event) => {
+                                  if (!isSelf) {
+                                    setUserForm((current) => ({ ...current, isActive: event.target.checked }));
+                                  }
+                                }}
+                                className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
+                              />
+                            </label>
+                            {isSelf && (
+                              <span className="mt-1 block text-xs font-medium text-amber-600">
+                                You cannot deactivate your own account.
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {/* About */}

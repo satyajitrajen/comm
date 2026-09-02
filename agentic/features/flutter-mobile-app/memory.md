@@ -11,7 +11,7 @@ Do not record secrets, credentials, access tokens, or sensitive personal data.
 - **Android only:** Avoid Apple Developer/signing blockers in v1; Dart stays reusable.
 - **Native Jitsi SDK:** Official `jitsi_meet_flutter_sdk` against `meet.teamtime.live`. Packaged SDK 11.6 requires **minSdk 26** (handbook still mentions 24).
 - **Sign-in only:** Login, 2FA, forgot/reset, change password. Workspace register stays on web.
-- **Brief approved** 2026-08-19. App id `live.teamtime.app`. Debug API `http://10.0.2.2:5000`. Release API `https://communication.impmeet.com`.
+- **Brief approved** 2026-08-19. App id `live.teamtime.app`. Default API (debug & release) `https://communication.impmeet.com`.
 
 ## Current progress
 

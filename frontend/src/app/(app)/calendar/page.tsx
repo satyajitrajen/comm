@@ -214,6 +214,7 @@ export default function CalendarPage() {
   const [showTasksFilter, setShowTasksFilter] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
 
   // Feedback Banner / Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -470,6 +471,7 @@ export default function CalendarPage() {
     const now = new Date();
     setActiveDate(now);
     setMiniCalDate(now);
+    setView('day');
   }
 
   // Date math
@@ -638,15 +640,27 @@ export default function CalendarPage() {
               </label>
             </div>
 
-            <div className="pt-2 px-1">
+            <div className="pt-2 px-1 flex items-center justify-between">
               <button
                 onClick={() => {
                   setShowEventsFilter(true);
                   setShowTasksFilter(true);
+                  setView('list');
                 }}
-                className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+                className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
+                title="View all events & tasks in list view"
               >
-                Show all
+                Show all (List)
+              </button>
+              <button
+                onClick={() => {
+                  const allSelected = showEventsFilter && showTasksFilter;
+                  setShowEventsFilter(!allSelected);
+                  setShowTasksFilter(!allSelected);
+                }}
+                className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+              >
+                {showEventsFilter && showTasksFilter ? 'Deselect all' : 'Select all'}
               </button>
             </div>
           </div>
@@ -656,7 +670,7 @@ export default function CalendarPage() {
       {/* MAIN CALENDAR CONTAINER */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden bg-white">
         {/* TOP TOOLBAR */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
+        <header className="relative z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
           {/* Left Controls: Sidebar toggle, Today, Carats, Month Title */}
           <div className="flex items-center gap-3">
             <button
@@ -726,10 +740,10 @@ export default function CalendarPage() {
               {viewDropdownOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-30"
+                    className="fixed inset-0 z-40"
                     onClick={() => setViewDropdownOpen(false)}
                   />
-                  <div className="absolute right-0 z-40 mt-1 w-36 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute right-0 z-50 mt-1 w-36 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-100">
                     {(['day', 'week', 'month', 'list'] as const).map((mode) => (
                       <button
                         key={mode}
@@ -750,16 +764,83 @@ export default function CalendarPage() {
             </div>
 
             {/* Filter Button */}
-            <button
-              onClick={() => {
-                setShowEventsFilter(true);
-                setShowTasksFilter(true);
-              }}
-              className="hidden sm:flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs"
-            >
-              <Filter className="h-3.5 w-3.5 text-slate-500" />
-              <span>Filter</span>
-            </button>
+            <div className="relative hidden sm:block">
+              <button
+                onClick={() => setFilterDropdownOpen((prev) => !prev)}
+                className={`flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs ${
+                  !showEventsFilter || !showTasksFilter ? 'border-blue-300 text-blue-700 bg-blue-50/50' : ''
+                }`}
+                title="Filter events and tasks"
+              >
+                <Filter className="h-3.5 w-3.5 text-slate-500" />
+                <span>Filter</span>
+                {(!showEventsFilter || !showTasksFilter) && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />
+                )}
+              </button>
+
+              {filterDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setFilterDropdownOpen(false)}
+                  />
+                  <div
+                    className="absolute right-0 z-50 mt-1 w-52 rounded-xl border border-slate-200 bg-white p-2.5 shadow-xl animate-in fade-in zoom-in-95 duration-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1 pb-2">
+                      Filter Display
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-2 rounded-lg p-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer transition">
+                        <input
+                          type="checkbox"
+                          checked={showEventsFilter}
+                          onChange={(e) => setShowEventsFilter(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-700 focus:ring-blue-500 h-4 w-4"
+                        />
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-blue-600" />
+                          Events & Meetings
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-2 rounded-lg p-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer transition">
+                        <input
+                          type="checkbox"
+                          checked={showTasksFilter}
+                          onChange={(e) => setShowTasksFilter(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-700 focus:ring-blue-500 h-4 w-4"
+                        />
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-indigo-500" />
+                          Tasks & Deadlines
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="mt-2 border-t border-slate-100 pt-2 flex items-center justify-between px-1">
+                      <button
+                        onClick={() => {
+                          setShowEventsFilter(true);
+                          setShowTasksFilter(true);
+                        }}
+                        className="text-[11px] font-semibold text-blue-700 hover:underline"
+                      >
+                        Reset All
+                      </button>
+                      <button
+                        onClick={() => setFilterDropdownOpen(false)}
+                        className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200 transition"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Meet Now Button */}
             <button
@@ -1118,7 +1199,25 @@ export default function CalendarPage() {
                4. LIST VIEW (CHRONOLOGICAL LIGHT)
                ======================================================== */
             <div className="p-6 space-y-3 max-w-4xl mx-auto">
-              {filteredItems.map((item) => (
+              {filteredItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-12 text-center rounded-2xl border border-dashed border-slate-200 bg-white">
+                  <CalendarIcon className="h-10 w-10 text-slate-300 mb-2" />
+                  <h3 className="text-sm font-bold text-slate-700">No events or tasks found</h3>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                    There are no scheduled items to display with the current filters.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setShowEventsFilter(true);
+                      setShowTasksFilter(true);
+                    }}
+                    className="mt-4 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              ) : (
+                filteredItems.map((item) => (
                 <div
                   key={item.id}
                   className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 hover:shadow-md transition"
@@ -1152,7 +1251,7 @@ export default function CalendarPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              )))}
             </div>
           )}
         </main>
