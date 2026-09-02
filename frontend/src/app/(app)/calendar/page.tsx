@@ -181,6 +181,36 @@ function toLocalDateString(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function parse24To12(time24: string): { hour12: string; minute: string; period: 'AM' | 'PM' } {
+  if (!time24) return { hour12: '10', minute: '00', period: 'AM' };
+  const [hStr, mStr] = time24.split(':');
+  let h = parseInt(hStr || '10', 10);
+  const m = mStr ? mStr.padStart(2, '0') : '00';
+  const period: 'AM' | 'PM' = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return {
+    hour12: String(h).padStart(2, '0'),
+    minute: m,
+    period,
+  };
+}
+
+function format12To24(hour12: string, minute: string, period: 'AM' | 'PM'): string {
+  let h = parseInt(hour12 || '12', 10);
+  if (period === 'AM') {
+    if (h === 12) h = 0;
+  } else {
+    if (h < 12) h += 12;
+  }
+  return `${String(h).padStart(2, '0')}:${minute.padStart(2, '0')}`;
+}
+
+function formatTime12(dateOrString: Date | string): string {
+  const d = typeof dateOrString === 'string' ? new Date(dateOrString) : dateOrString;
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
 function isSameDay(d1: Date, d2: Date): boolean {
   return (
     d1.getFullYear() === d2.getFullYear() &&
@@ -1365,26 +1395,106 @@ export default function CalendarPage() {
                       required
                     />
                   </label>
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Start Time
-                    <input
-                      value={eventStart}
-                      onChange={(e) => setEventStart(e.target.value)}
-                      type="time"
-                      className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
-                      required
-                    />
-                  </label>
-                  <label className="block text-xs font-semibold text-slate-700">
-                    End Time
-                    <input
-                      value={eventEnd}
-                      onChange={(e) => setEventEnd(e.target.value)}
-                      type="time"
-                      className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
-                      required
-                    />
-                  </label>
+                  
+                  <div>
+                    <span className="block text-xs font-semibold text-slate-700 mb-1">Start Time</span>
+                    {(() => {
+                      const startParsed = parse24To12(eventStart);
+                      return (
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={startParsed.hour12}
+                            onChange={(e) => setEventStart(format12To24(e.target.value, startParsed.minute, startParsed.period))}
+                            className="h-10 flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map((h) => (
+                              <option key={h} value={h}>{h}</option>
+                            ))}
+                          </select>
+                          <span className="text-slate-400 font-bold">:</span>
+                          <select
+                            value={startParsed.minute}
+                            onChange={(e) => setEventStart(format12To24(startParsed.hour12, e.target.value, startParsed.period))}
+                            className="h-10 flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setEventStart(format12To24(startParsed.hour12, startParsed.minute, 'AM'))}
+                              className={`rounded-md px-2 py-1.5 text-xs font-bold transition cursor-pointer ${
+                                startParsed.period === 'AM' ? 'bg-blue-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-950'
+                              }`}
+                            >
+                              AM
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEventStart(format12To24(startParsed.hour12, startParsed.minute, 'PM'))}
+                              className={`rounded-md px-2 py-1.5 text-xs font-bold transition cursor-pointer ${
+                                startParsed.period === 'PM' ? 'bg-blue-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-950'
+                              }`}
+                            >
+                              PM
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <div>
+                    <span className="block text-xs font-semibold text-slate-700 mb-1">End Time</span>
+                    {(() => {
+                      const endParsed = parse24To12(eventEnd);
+                      return (
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={endParsed.hour12}
+                            onChange={(e) => setEventEnd(format12To24(e.target.value, endParsed.minute, endParsed.period))}
+                            className="h-10 flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map((h) => (
+                              <option key={h} value={h}>{h}</option>
+                            ))}
+                          </select>
+                          <span className="text-slate-400 font-bold">:</span>
+                          <select
+                            value={endParsed.minute}
+                            onChange={(e) => setEventEnd(format12To24(endParsed.hour12, e.target.value, endParsed.period))}
+                            className="h-10 flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setEventEnd(format12To24(endParsed.hour12, endParsed.minute, 'AM'))}
+                              className={`rounded-md px-2 py-1.5 text-xs font-bold transition cursor-pointer ${
+                                endParsed.period === 'AM' ? 'bg-blue-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-950'
+                              }`}
+                            >
+                              AM
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEventEnd(format12To24(endParsed.hour12, endParsed.minute, 'PM'))}
+                              className={`rounded-md px-2 py-1.5 text-xs font-bold transition cursor-pointer ${
+                                endParsed.period === 'PM' ? 'bg-blue-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-950'
+                              }`}
+                            >
+                              PM
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
 
                 {/* Attendees */}
