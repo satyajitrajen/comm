@@ -70,7 +70,13 @@ export class FilesService {
   constructor(private prisma: PrismaService) {}
 
   private uploadRoot() {
-    return join(process.cwd(), 'uploads');
+    // Prefer UPLOAD_DIR (absolute host/volume path). Default stays ./uploads so
+    // Docker must mount a persistent volume at /app/uploads or files are wiped
+    // on container recreate.
+    const configured = process.env.UPLOAD_DIR?.trim();
+    return configured && configured.length > 0
+      ? configured
+      : join(process.cwd(), 'uploads');
   }
 
   /** Saves raw bytes to local disk and returns the relative storage key. */

@@ -46,3 +46,10 @@ backend/uploads/
 .env.*
 !.env.example
 !.env.local.example
+
+# Local scratch
+design-qa.md
+run-dev.bat
+run-dev.ps1
+start-process-test.txt
+node-test.*.log
