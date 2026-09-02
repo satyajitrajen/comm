@@ -2,7 +2,7 @@ import axios from 'axios';
 import { useAppStore } from '../store/useAppStore';
 
 export const getApiClient = () => {
-  const backendUrl = useAppStore.getState().backendUrl || 'http://localhost:5000';
+  const backendUrl = useAppStore.getState().backendUrl || 'https://communication.impmeet.com';
   
   const client = axios.create({
     baseURL: backendUrl,

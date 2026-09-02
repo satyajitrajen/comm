@@ -15,8 +15,9 @@ void main() {
     expect(navKeyAllowed('home', {'allowedNavKeys': ['home']}), isTrue);
   });
 
-  test('debug API default is emulator loopback', () {
-    expect(AppConfig.debugDefault, 'http://10.0.2.2:5000');
+  test('API default is production server', () {
+    expect(AppConfig.debugDefault, 'https://communication.impmeet.com');
+    expect(AppConfig.apiBaseUrl(isRelease: false), 'https://communication.impmeet.com');
     expect(AppConfig.apiBaseUrl(isRelease: true), 'https://communication.impmeet.com');
   });
 

@@ -24,7 +24,7 @@ const nextConfig: NextConfig = electronBuild
         return [
           {
             source: "/api/v1/:path*",
-            destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/v1/:path*`,
+            destination: `${process.env.NEXT_PUBLIC_API_URL || "https://communication.impmeet.com"}/api/v1/:path*`,
           },
         ];
       },

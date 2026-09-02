@@ -97,7 +97,7 @@ export const useAppStore = create<AppState>((set) => ({
   },
 
   activeTab: 'home',
-  backendUrl: localStorage.getItem('backend_url') || 'http://localhost:5000',
+  backendUrl: localStorage.getItem('backend_url') || 'https://communication.impmeet.com',
   isConnected: false,
   searchQuery: '',
 

@@ -47,7 +47,7 @@ function frontendUrl(): string {
 }
 
 function apiUrl(): string {
-  return process.env.DESKTOP_API_URL?.trim() || 'http://localhost:5000';
+  return process.env.DESKTOP_API_URL?.trim() || 'https://communication.impmeet.com';
 }
 
 function probe(url: string): Promise<boolean> {
