@@ -174,6 +174,13 @@ function getWeekDays(refDate: Date): Date[] {
   });
 }
 
+function toLocalDateString(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function isSameDay(d1: Date, d2: Date): boolean {
   return (
     d1.getFullYear() === d2.getFullYear() &&
@@ -229,7 +236,7 @@ export default function CalendarPage() {
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
   const [eventTeam, setEventTeam] = useState('');
-  const [eventDate, setEventDate] = useState(today.toISOString().slice(0, 10));
+  const [eventDate, setEventDate] = useState(() => toLocalDateString(new Date()));
   const [eventStart, setEventStart] = useState('10:00');
   const [eventEnd, setEventEnd] = useState('10:30');
   const [selectedAttendees, setSelectedAttendees] = useState<string[]>([]);
@@ -317,7 +324,7 @@ export default function CalendarPage() {
     setActiveEventId(null);
     setEventTitle('');
     setEventDescription('');
-    setEventDate(defaultDateStr || activeDate.toISOString().slice(0, 10));
+    setEventDate(defaultDateStr || toLocalDateString(activeDate));
     setEventStart(defaultStartTime || '10:00');
     
     if (defaultStartTime) {
@@ -343,7 +350,7 @@ export default function CalendarPage() {
     setEventTeam(item.source && item.source !== 'Calendar' && item.source !== 'Workspace' ? item.source : teams[0] || 'Engineering');
     
     const startDt = new Date(item.startsAt);
-    setEventDate(startDt.toISOString().slice(0, 10));
+    setEventDate(toLocalDateString(startDt));
     setEventStart(startDt.toTimeString().slice(0, 5));
 
     if (item.endsAt) {
@@ -953,7 +960,7 @@ export default function CalendarPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            openCreateModal(dateObj.toISOString().slice(0, 10));
+                            openCreateModal(toLocalDateString(dateObj));
                           }}
                           className="opacity-0 group-hover:opacity-100 rounded-md p-0.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition"
                           title="Add event"
@@ -1075,7 +1082,7 @@ export default function CalendarPage() {
                           <div
                             key={dayIdx}
                             onClick={() => {
-                              openCreateModal(dateObj.toISOString().slice(0, 10), `${hourPad}:00`);
+                              openCreateModal(toLocalDateString(dateObj), `${hourPad}:00`);
                             }}
                             className="p-1 border-r border-slate-100 last:border-r-0 hover:bg-blue-50/40 transition cursor-pointer relative group flex flex-col gap-1 min-h-[56px]"
                             title={`Add event on ${dateObj.toLocaleDateString()} at ${hourFormatted}`}
@@ -1121,7 +1128,7 @@ export default function CalendarPage() {
                   </span>
                 </div>
                 <button
-                  onClick={() => openCreateModal(activeDate.toISOString().slice(0, 10))}
+                  onClick={() => openCreateModal(toLocalDateString(activeDate))}
                   className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-800 transition"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -1147,7 +1154,7 @@ export default function CalendarPage() {
                       <div
                         onClick={(e) => {
                           if (e.target === e.currentTarget) {
-                            openCreateModal(activeDate.toISOString().slice(0, 10), `${hourPad}:00`);
+                            openCreateModal(toLocalDateString(activeDate), `${hourPad}:00`);
                           }
                         }}
                         className="flex-1 p-2 flex flex-col gap-2 cursor-pointer"
