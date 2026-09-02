@@ -743,7 +743,10 @@ export default function CalendarPage() {
                     className="fixed inset-0 z-40"
                     onClick={() => setViewDropdownOpen(false)}
                   />
-                  <div className="absolute right-0 z-50 mt-1 w-36 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-100">
+                  <div
+                    style={{ backgroundColor: '#ffffff', backgroundImage: 'none', backdropFilter: 'none' }}
+                    className="absolute right-0 z-50 mt-1 w-36 rounded-xl border border-slate-200 !bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-100 dropdown-card"
+                  >
                     {(['day', 'week', 'month', 'list'] as const).map((mode) => (
                       <button
                         key={mode}
@@ -786,7 +789,8 @@ export default function CalendarPage() {
                     onClick={() => setFilterDropdownOpen(false)}
                   />
                   <div
-                    className="absolute right-0 z-50 mt-1 w-52 rounded-xl border border-slate-200 bg-white p-2.5 shadow-xl animate-in fade-in zoom-in-95 duration-100"
+                    style={{ backgroundColor: '#ffffff', backgroundImage: 'none', backdropFilter: 'none' }}
+                    className="absolute right-0 z-50 mt-1 w-52 rounded-xl border border-slate-200 !bg-white p-2.5 shadow-xl animate-in fade-in zoom-in-95 duration-100 dropdown-card"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1 pb-2">

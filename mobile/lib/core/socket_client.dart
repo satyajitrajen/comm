@@ -22,41 +22,70 @@ class TeamTimeSocket {
 
   io.Socket? get socket => _socket;
 
+  /// Registers a callback that receives the active socket instance.
+  /// Returns an unbind function to safely remove the binder callback.
   void Function() onSocket(void Function(io.Socket socket) binder) {
-    final socket = _socket;
-    if (socket != null) {
-      binder(socket);
-      return () {};
-    }
+    if (_disposed) return () {};
     _binders.add(binder);
-    return () => _binders.remove(binder);
+    final socket = _socket;
+    if (socket != null && socket.connected) {
+      binder(socket);
+    }
+    return () {
+      _binders.remove(binder);
+    };
   }
 
   Future<io.Socket?> connect() async {
-    if (_disposed || _socket != null) return _socket;
+    if (_disposed) return null;
+    if (_socket != null && _socket!.connected) {
+      return _socket;
+    }
     _setStatus(SocketStatus.connecting);
     final token = await tokenProvider();
-    if (token == null || _disposed) return null;
+    if (token == null || _disposed) {
+      _setStatus(SocketStatus.disconnected);
+      return null;
+    }
+
+    if (_socket != null) {
+      _socket?.dispose();
+      _socket = null;
+    }
+
     final socket = io.io(
       baseUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
-          .enableForceNew()
           .setReconnectionAttempts(double.infinity)
           .setReconnectionDelay(1000)
-          .setReconnectionDelayMax(15000)
+          .setReconnectionDelayMax(10000)
           .setAuthFn(_resolveAuth)
           .build(),
     );
     _socket = socket;
-    socket.on('connect', (_) => _setStatus(SocketStatus.connected));
+
+    socket.on('connect', (_) {
+      _setStatus(SocketStatus.connected);
+      for (final binder in List.of(_binders)) {
+        if (!_disposed && _socket == socket) {
+          binder(socket);
+        }
+      }
+    });
+
     socket.on('disconnect', (_) => _setStatus(SocketStatus.disconnected));
     socket.io.on('reconnect_attempt', (_) => _setStatus(SocketStatus.reconnecting));
-    for (final binder in _binders) {
-      binder(socket);
-    }
-    _binders.clear();
+    socket.io.on('reconnect', (_) {
+      _setStatus(SocketStatus.connected);
+      for (final binder in List.of(_binders)) {
+        if (!_disposed && _socket == socket) {
+          binder(socket);
+        }
+      }
+    });
+
     socket.connect();
     return socket;
   }
@@ -84,6 +113,11 @@ class TeamTimeSocket {
     _socket?.emit('room.leave', {'conversationId': conversationId});
   }
 
+  void disconnect() {
+    _socket?.disconnect();
+    _setStatus(SocketStatus.disconnected);
+  }
+
   void dispose() {
     _disposed = true;
     _binders.clear();
@@ -95,17 +129,23 @@ class TeamTimeSocket {
 final socketStatusProvider = StateProvider<SocketStatus>((_) => SocketStatus.idle);
 
 final socketClientProvider = Provider<TeamTimeSocket>((ref) {
-  final loggedIn = ref.watch(authProvider.select((state) => state.isLoggedIn));
-  final api = ref.watch(apiClientProvider);
-  final session = ref.watch(sessionProvider);
+  final isLoggedIn = ref.watch(authProvider.select((state) => state.isLoggedIn));
+  final api = ref.read(apiClientProvider);
+  final session = ref.read(sessionProvider);
+
   final socket = TeamTimeSocket(
     baseUrl: api.baseUrl,
     tokenProvider: () => session.accessToken,
-    onStatus: (status) => ref.read(socketStatusProvider.notifier).state = status,
+    onStatus: (status) {
+      ref.read(socketStatusProvider.notifier).state = status;
+    },
   );
+
   ref.onDispose(socket.dispose);
-  if (loggedIn) {
+
+  if (isLoggedIn) {
     unawaited(socket.connect());
   }
+
   return socket;
 });

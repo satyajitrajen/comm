@@ -122,6 +122,14 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
                 },
               ),
             ListTile(
+              leading: const Icon(Icons.calendar_month_outlined),
+              title: const Text('Calendar & Events'),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.push('/events');
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.settings_outlined),
               title: const Text('Settings'),
               onTap: () {

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../core/auth_notifier.dart';
 import '../core/permissions.dart';
 import '../features/auth/auth_screens.dart';
+import '../features/calendar/events_screen.dart';
 import '../features/chat/conversation_screen.dart';
 import '../features/files/files_screen.dart';
 import '../features/people/people_screen.dart';
@@ -56,6 +57,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/activity', builder: (_, _) => const ShellScreen(index: 4)),
       GoRoute(path: '/files', builder: (_, _) => const FilesScreen()),
       GoRoute(path: '/people', builder: (_, _) => const PeopleScreen()),
+      GoRoute(path: '/events', builder: (_, _) => const EventsScreen()),
       GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(
         path: '/chat/:id',

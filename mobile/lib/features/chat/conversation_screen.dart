@@ -51,17 +51,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     _composer.dispose();
     _scroll.dispose();
     _unbind?.call();
-    final socket = _socket;
-    if (socket != null) {
-      socket
-        ..off('connect', _onConnect)
-        ..off('message.sent', _onSent)
-        ..off('message.edited', _onEdited)
-        ..off('message.deleted', _onDeleted)
-        ..off('poll.created', _onSent)
-        ..off('poll.voted', _onEdited);
-      socket.emit('room.leave', {'conversationId': widget.conversationId});
-    }
+    _detachSocket(_socket);
+    _socket = null;
     super.dispose();
   }
 
@@ -70,11 +61,24 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     _unbind = client.onSocket(_onSocketReady);
   }
 
+  void _detachSocket(io.Socket? socket) {
+    if (socket == null) return;
+    socket
+      ..off('connect', _onConnect)
+      ..off('message.sent', _onSent)
+      ..off('message.edited', _onEdited)
+      ..off('message.deleted', _onDeleted)
+      ..off('poll.created', _onSent)
+      ..off('poll.voted', _onEdited);
+    socket.emit('room.leave', {'conversationId': widget.conversationId});
+  }
+
   void _onSocketReady(io.Socket socket) {
     if (identical(_socket, socket)) {
       if (socket.connected) _onConnect(null);
       return;
     }
+    _detachSocket(_socket);
     _socket = socket;
     socket
       ..on('connect', _onConnect)
@@ -91,29 +95,34 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
 
   void _onSent(dynamic data) {
+    if (!mounted) return;
     if (data is Map && data['conversationId'] == widget.conversationId) {
-      setState(() => _upsert(Map<String, dynamic>.from(data)));
+      _upsert(Map<String, dynamic>.from(data));
     }
   }
 
   void _onEdited(dynamic data) {
+    if (!mounted) return;
     if (data is Map) _upsert(Map<String, dynamic>.from(data));
   }
 
   void _onDeleted(dynamic data) {
+    if (!mounted) return;
     if (data is Map && data['id'] != null) {
       setState(() => _messages.removeWhere((m) => m['id'] == data['id']));
     }
   }
 
   void _upsert(Map<String, dynamic> msg) {
-    final i = _messages.indexWhere((m) => m['id'] == msg['id']);
-    if (i >= 0) {
-      _messages[i] = msg;
-    } else {
-      _messages.add(msg);
-    }
-    setState(() {});
+    if (!mounted) return;
+    setState(() {
+      final i = _messages.indexWhere((m) => m['id'] == msg['id']);
+      if (i >= 0) {
+        _messages[i] = msg;
+      } else {
+        _messages.add(msg);
+      }
+    });
   }
 
   Future<void> _load({bool older = false}) async {

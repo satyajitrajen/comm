@@ -33,20 +33,36 @@ class CallUiState {
 class CallController extends Notifier<CallUiState> {
   final _jitsi = JitsiMeet();
   io.Socket? _socket;
-  TeamTimeSocket? _client;
+  void Function()? _unbind;
 
   @override
   CallUiState build() {
     final client = ref.watch(socketClientProvider);
-    if (!identical(_client, client)) {
-      _client = client;
-      client.onSocket(_attach);
-    }
+    _unbind?.call();
+    _detach(_socket);
+    _socket = null;
+    _unbind = client.onSocket(_attach);
+    ref.onDispose(() {
+      _unbind?.call();
+      _detach(_socket);
+      _socket = null;
+    });
     return const CallUiState();
+  }
+
+  void _detach(io.Socket? socket) {
+    if (socket == null) return;
+    socket
+      ..off('call.incoming', _onIncoming)
+      ..off('call.accepted', _onAccepted)
+      ..off('call.declined', _onDeclined)
+      ..off('call.ended', _onEnded)
+      ..off('call.cancelled', _onCancelled);
   }
 
   void _attach(io.Socket socket) {
     if (identical(_socket, socket)) return;
+    _detach(_socket);
     _socket = socket;
     socket
       ..on('call.incoming', _onIncoming)
