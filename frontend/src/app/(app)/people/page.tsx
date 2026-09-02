@@ -49,7 +49,7 @@ export default function PeoplePage() {
 
   // Pagination state
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(12);
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     try {
@@ -627,7 +627,7 @@ export default function PeoplePage() {
                       }}
                       className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-500 cursor-pointer"
                     >
-                      {[12, 24, 48, 96].map((size) => (
+                      {[10, 20, 50, 100].map((size) => (
                         <option key={size} value={size}>
                           {size}
                         </option>

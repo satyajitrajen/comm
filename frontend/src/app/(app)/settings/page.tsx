@@ -804,7 +804,7 @@ export default function SettingsPage() {
                               }}
                               className="h-8 rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-500 cursor-pointer"
                             >
-                              {[10, 25, 50, 100].map((size) => (
+                              {[10, 20, 50, 100].map((size) => (
                                 <option key={size} value={size}>
                                   {size}
                                 </option>
