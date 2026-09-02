@@ -174,6 +174,7 @@ export class MailService {
   async sendCalendarInvite(options: {
     to: string;
     recipientName?: string;
+    timeZone?: string;
     event: {
       id: string;
       title: string;
@@ -191,19 +192,55 @@ export class MailService {
     const startsAt = new Date(event.startsAt);
     const endsAt = new Date(event.endsAt);
     const icsContent = this.generateIcsString(event);
-    const dateFormatted = startsAt.toLocaleDateString(undefined, {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    const timeFormatted = `${startsAt.toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-    })} - ${endsAt.toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-    })}`;
+
+    const timeZone =
+      options.timeZone || process.env.APP_TIMEZONE || 'Asia/Kolkata';
+
+    let dateFormatted = '';
+    let timeFormatted = '';
+
+    try {
+      dateFormatted = new Intl.DateTimeFormat('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone,
+      }).format(startsAt);
+
+      const startTimeFormatted = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone,
+      }).format(startsAt);
+
+      const endTimeFormatted = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone,
+        timeZoneName: 'short',
+      }).format(endsAt);
+
+      timeFormatted = `${startTimeFormatted} - ${endTimeFormatted}`;
+    } catch {
+      dateFormatted = startsAt.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+      timeFormatted = `${startsAt.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      })} - ${endsAt.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      })}`;
+    }
 
     const subject = `Invitation: ${event.title} @ ${dateFormatted} (${timeFormatted})`;
 

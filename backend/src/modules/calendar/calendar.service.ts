@@ -100,6 +100,43 @@ export class CalendarService implements OnModuleInit {
     });
   }
 
+  private formatDateTimeLocal(date: Date): string {
+    const timeZone = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+    try {
+      const dateFormatted = new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone,
+      }).format(date);
+      const timeFormatted = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone,
+        timeZoneName: 'short',
+      }).format(date);
+      return `${dateFormatted} at ${timeFormatted}`;
+    } catch {
+      return date.toLocaleString();
+    }
+  }
+
+  private formatTimeLocal(date: Date): string {
+    const timeZone = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+    try {
+      return new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone,
+        timeZoneName: 'short',
+      }).format(date);
+    } catch {
+      return date.toLocaleTimeString();
+    }
+  }
+
   private async dispatchEventInvites(
     event: Prisma.CalendarEventGetPayload<{
       include: {
@@ -145,6 +182,7 @@ export class CalendarService implements OnModuleInit {
 
     const startsAt = new Date(event.startsAt);
     const endsAt = new Date(event.endsAt);
+    const scheduledStr = this.formatDateTimeLocal(startsAt);
 
     for (const attendeeUser of users) {
       // Don't send notification to organizer if they added themselves
@@ -154,8 +192,8 @@ export class CalendarService implements OnModuleInit {
         ? `Event Updated: ${event.title}`
         : `New Event Invitation: ${event.title}`;
       const body = isUpdate
-        ? `${organizerName} updated the event "${event.title}" scheduled for ${startsAt.toLocaleString()}`
-        : `${organizerName} invited you to "${event.title}" scheduled for ${startsAt.toLocaleString()}`;
+        ? `${organizerName} updated the event "${event.title}" scheduled for ${scheduledStr}`
+        : `${organizerName} invited you to "${event.title}" scheduled for ${scheduledStr}`;
 
       // 1. Create In-App Notification
       try {
@@ -665,7 +703,7 @@ export class CalendarService implements OnModuleInit {
             data: {
               userId: uid,
               title: `Upcoming Event Reminder`,
-              body: `"${event.title}" starts soon (at ${event.startsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`,
+              body: `"${event.title}" starts soon (at ${this.formatTimeLocal(event.startsAt)})`,
               notificationType: 'SYSTEM_ALERT',
               resourceId: event.id,
             },
