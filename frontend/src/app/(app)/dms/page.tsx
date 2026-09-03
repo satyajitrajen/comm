@@ -20,7 +20,7 @@ import {
 import { useCallStore } from '../../../store/useCallStore';
 import { callRoomName } from '../../../lib/callRoom';
 import type { Socket } from 'socket.io-client';
-import { createAppSocket } from '../../../lib/socket';
+import { getAppSocket } from '../../../lib/socket';
 import { resolveStatus, statusLabel } from '../../../lib/statusAvailability';
 
 type DirectChat = {
@@ -355,30 +355,29 @@ export default function DMsPage() {
     return () => window.clearTimeout(timer);
   }, [selectedId, newestMessageId]);
 
-  // One socket per page; room membership and per-conversation state follow
-  // selectedId via refs and the room effect below, not by reconnecting.
+  // Shared socket; room membership follows selectedId via the effect below.
   useEffect(() => {
-    const socket = createAppSocket();
+    const socket = getAppSocket();
     if (!socket) return;
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    const onConnect = () => {
       const cid = selectedIdRef.current;
       if (cid) {
         socket.emit('room.join', { conversationId: cid });
       }
-    });
+    };
 
-    socket.on('message.sent', (message: BackendMessage & { conversationId: string }) => {
+    const onMessageSent = (message: BackendMessage & { conversationId: string }) => {
       if (message.conversationId === selectedIdRef.current) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === message.id)) return prev;
           return [...prev, message];
         });
       }
-    });
+    };
 
-    socket.on('message.edited', (data?: { messageId?: string; content?: string }) => {
+    const onMessageEdited = (data?: { messageId?: string; content?: string }) => {
       if (data?.messageId && data?.content) {
         setMessages((prev) =>
           prev.map((m) => (m.id === data.messageId ? { ...m, content: data.content, isEdited: true } : m)),
@@ -386,18 +385,23 @@ export default function DMsPage() {
       } else {
         loadMessages(selectedIdRef.current);
       }
-    });
+    };
 
-    socket.on('message.deleted', (data?: { messageId?: string }) => {
+    const onMessageDeleted = (data?: { messageId?: string }) => {
       if (data?.messageId) {
         setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
       } else {
         loadMessages(selectedIdRef.current);
       }
       scheduleChatListRefresh(selectedIdRef.current);
-    });
+    };
 
-    socket.on('message.reacted', (data?: { messageId?: string; userId?: string; emoji?: string; action?: 'ADDED' | 'REMOVED' }) => {
+    const onMessageReacted = (data?: {
+      messageId?: string;
+      userId?: string;
+      emoji?: string;
+      action?: 'ADDED' | 'REMOVED';
+    }) => {
       const messageId = data?.messageId;
       const userId = data?.userId;
       const emoji = data?.emoji;
@@ -416,9 +420,9 @@ export default function DMsPage() {
       } else {
         loadMessages(selectedIdRef.current);
       }
-    });
+    };
 
-    socket.on('poll.voted', (poll?: PollData) => {
+    const onPollVoted = (poll?: PollData) => {
       if (poll?.id && Array.isArray(poll.votes)) {
         setMessages((prev) =>
           prev.map((m) => (m.polls?.id === poll.id ? { ...m, polls: poll } : m)),
@@ -426,9 +430,9 @@ export default function DMsPage() {
       } else {
         loadMessages(selectedIdRef.current);
       }
-    });
+    };
 
-    socket.on('task.created', (task?: TaskData & { messageId?: string }) => {
+    const onTaskCreated = (task?: TaskData & { messageId?: string }) => {
       if (task?.id && task.messageId) {
         setMessages((prev) =>
           prev.map((m) =>
@@ -438,14 +442,32 @@ export default function DMsPage() {
       } else {
         loadMessages(selectedIdRef.current);
       }
-    });
+    };
 
-    socket.on('user.presence', () => {
+    const onPresence = () => {
       scheduleChatListRefresh(selectedIdRef.current);
-    });
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('message.sent', onMessageSent);
+    socket.on('message.edited', onMessageEdited);
+    socket.on('message.deleted', onMessageDeleted);
+    socket.on('message.reacted', onMessageReacted);
+    socket.on('poll.voted', onPollVoted);
+    socket.on('task.created', onTaskCreated);
+    socket.on('user.presence', onPresence);
+
+    if (socket.connected) onConnect();
 
     return () => {
-      socket.disconnect();
+      socket.off('connect', onConnect);
+      socket.off('message.sent', onMessageSent);
+      socket.off('message.edited', onMessageEdited);
+      socket.off('message.deleted', onMessageDeleted);
+      socket.off('message.reacted', onMessageReacted);
+      socket.off('poll.voted', onPollVoted);
+      socket.off('task.created', onTaskCreated);
+      socket.off('user.presence', onPresence);
       socketRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -453,7 +475,7 @@ export default function DMsPage() {
 
   // Room join/leave follows the selected conversation without reconnecting.
   useEffect(() => {
-    const socket = socketRef.current;
+    const socket = socketRef.current ?? getAppSocket();
     if (!socket || !selectedId) return;
 
     socket.emit('room.join', { conversationId: selectedId });

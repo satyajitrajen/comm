@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { calendarAPI, tasksAPI, usersAPI } from '../../../services/api';
 import { getChatsFeedCached } from '../../../lib/chatsFeedCache';
-import { formatDateTime } from '../_utils';
+import { formatDateTime, formatTime, formatDateLong, APP_TIMEZONE } from '../_utils';
 import { SearchDropdown } from '../../components/SearchDropdown';
 import Portal from '../../components/Portal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -208,7 +208,12 @@ function format12To24(hour12: string, minute: string, period: 'AM' | 'PM'): stri
 
 function formatTime12(dateOrString: Date | string): string {
   const d = typeof dateOrString === 'string' ? new Date(dateOrString) : dateOrString;
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return d.toLocaleTimeString('en-IN', {
+    timeZone: APP_TIMEZONE,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 function isSameDay(d1: Date, d2: Date): boolean {
@@ -1009,11 +1014,11 @@ export default function CalendarPage() {
                               openEditModal(item);
                             }}
                             className="group/item flex items-center justify-between gap-1 rounded bg-indigo-50/90 hover:bg-indigo-100 border-l-2 border-indigo-600 px-1.5 py-0.5 text-[11px] text-indigo-950 shadow-2xs transition"
-                            title={`${item.title} (${new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`}
+                            title={`${item.title} (${formatTime(item.startsAt)})`}
                           >
                             <div className="flex items-center gap-1 min-w-0 flex-1">
                               <span className="text-[9px] text-indigo-700 font-semibold shrink-0">
-                                {new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {formatTime(item.startsAt)}
                               </span>
                               <span className="truncate font-semibold text-[10px] text-slate-900">
                                 {item.title}
@@ -1115,7 +1120,7 @@ export default function CalendarPage() {
                               openCreateModal(toLocalDateString(dateObj), `${hourPad}:00`);
                             }}
                             className="p-1 border-r border-slate-100 last:border-r-0 hover:bg-blue-50/40 transition cursor-pointer relative group flex flex-col gap-1 min-h-[56px]"
-                            title={`Add event on ${dateObj.toLocaleDateString()} at ${hourFormatted}`}
+                            title={`Add event on ${formatDateLong(dateObj)} at ${hourFormatted}`}
                           >
                             {cellEvents.map((item) => (
                               <div
@@ -1125,13 +1130,13 @@ export default function CalendarPage() {
                                   openEditModal(item);
                                 }}
                                 className="rounded-md bg-indigo-50 border-l-2 border-indigo-600 p-1.5 text-xs text-indigo-950 shadow-2xs hover:bg-indigo-100 transition truncate"
-                                title={`${item.title} (${new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`}
+                                title={`${item.title} (${formatTime(item.startsAt)})`}
                               >
                                 <div className="flex items-center gap-1">
                                   <span className="font-bold text-[11px] text-slate-900 truncate">{item.title}</span>
                                 </div>
                                 <div className="text-[10px] text-indigo-700 font-semibold">
-                                  {new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {formatTime(item.startsAt)}
                                 </div>
                               </div>
                             ))}
@@ -1151,7 +1156,7 @@ export default function CalendarPage() {
               <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-6 py-3">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-slate-900">
-                    {activeDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                    {formatDateLong(activeDate)}
                   </span>
                   <span className="rounded-full bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-0.5 text-xs font-semibold">
                     {filteredItems.filter((it) => isSameDay(new Date(it.startsAt), activeDate)).length} scheduled
@@ -1199,8 +1204,8 @@ export default function CalendarPage() {
                               <div>
                                 <div className="text-sm font-bold text-slate-900">{item.title}</div>
                                 <div className="text-xs text-blue-700 font-semibold mt-0.5">
-                                  {new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  {item.endsAt && ` – ${new Date(item.endsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                  {formatTime(item.startsAt)}
+                                  {item.endsAt && ` – ${formatTime(item.endsAt)}`}
                                 </div>
                                 {item.attendeeNames && item.attendeeNames.length > 0 && (
                                   <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">

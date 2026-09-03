@@ -18,7 +18,7 @@ import {
   Calendar,
   Video,
 } from 'lucide-react';
-import { initials, avatarAccent } from '../(app)/_utils';
+import { initials, avatarAccent, formatDateOnly, formatDateShort } from '../(app)/_utils';
 import Portal from './Portal';
 import LinkPreview from './LinkPreview';
 import { FormattedMessageContent } from '../../lib/tabularMessageContent';
@@ -199,7 +199,7 @@ function PollCard({ polls, currentUserId, onAction }: PollCardProps) {
         </div>
         {polls.expiresAt && !isExpired && (
           <div className="flex items-center gap-1">
-            <span>Closes: {new Date(polls.expiresAt).toLocaleDateString()}</span>
+            <span>Closes: {formatDateOnly(polls.expiresAt)}</span>
           </div>
         )}
       </div>
@@ -253,7 +253,7 @@ function TaskCard({ task, onAction }: TaskCardProps) {
             {task.dueDate && (
               <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
                 <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                <span>Due {new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span>Due {formatDateShort(task.dueDate)}</span>
               </span>
             )}
 

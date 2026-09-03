@@ -1,0 +1,80 @@
+# All services share this network so nginx (teamtime) can reach backend:5000 and frontend:3000.
+networks:
+  teamtime-net:
+    name: teamtime-net
+    external: true
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: teamtime-backend
+    networks:
+      - teamtime-net
+    ports:
+      - "5000:5000"
+    volumes:
+      - /var/lib/teamtime:/var/lib/teamtime
+      # REQUIRED: LOCAL uploads must live on the host. Without this mount,
+      # /app/uploads is wiped every time the backend container is recreated.
+      - /var/lib/teamtime/uploads:/app/uploads
+    # Loads SMTP_* / CLOUDINARY_* / JWT_SECRET from backend/.env
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://communication.impmeet.com}
+      # JWT_SECRET / SMTP_* / CLOUDINARY_* come from env_file (backend/.env)
+      - DATABASE_URL=${DATABASE_URL:-file:/var/lib/teamtime/dev.db}
+      - UPLOAD_DIR=/app/uploads
+      - TWO_FACTOR_LOG_OTP=${TWO_FACTOR_LOG_OTP:-false}
+      - THROTTLE_TTL_MS=${THROTTLE_TTL_MS:-60000}
+      - THROTTLE_LIMIT=${THROTTLE_LIMIT:-600}
+      - PRISMA_DB_PUSH=${PRISMA_DB_PUSH:-false}
+      - APP_ORIGIN=${APP_ORIGIN:-https://communication.impmeet.com}
+      - TZ=Asia/Kolkata
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    restart: unless-stopped
+
+  frontend:
+    image: teamtime-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+    container_name: teamtime-frontend
+    networks:
+      - teamtime-net
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=
+      - NEXT_PUBLIC_SOCKET_URL=
+    restart: unless-stopped
+
+  teamtime:
+    image: nginx:stable
+    container_name: teamtime
+    networks:
+      - teamtime-net
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/conf.d/project.docker.conf:/etc/nginx/conf.d/project.conf:ro
+      - ../nginx/ssl:/etc/nginx/ssl:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped

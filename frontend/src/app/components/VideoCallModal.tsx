@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { Minimize2, PhoneOff, PhoneCall, UserPlus, Search, X, MessageSquare, Send } from 'lucide-react';
 import Portal from './Portal';
 import { usersAPI, chatsAPI, messagesAPI } from '../../services/api';
-import { createAppSocket } from '../../lib/socket';
-import { avatarAccent, initials } from '../(app)/_utils';
+import { getAppSocket } from '../../lib/socket';
+import { avatarAccent, initials, formatTime } from '../(app)/_utils';
 import {
   isDocumentPipSupported,
   moveToDocumentPip,
@@ -138,16 +138,17 @@ export function VideoCallModal({
     };
   }, [activeConversationId]);
 
-  // Real-time live messaging in call
+  // Real-time live messaging in call (shared socket)
   useEffect(() => {
     if (!activeConversationId) return;
-    const socket = createAppSocket();
+    const socket = getAppSocket();
     if (!socket) return;
 
-    socket.emit('room.join', { conversationId: activeConversationId });
+    const conversationId = activeConversationId;
+    socket.emit('room.join', { conversationId });
 
-    socket.on('message.sent', (msg: InCallMessage) => {
-      if (msg?.conversationId === activeConversationId) {
+    const onMessageSent = (msg: InCallMessage) => {
+      if (msg?.conversationId === conversationId) {
         setInCallMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
@@ -156,10 +157,14 @@ export function VideoCallModal({
           setUnreadChatCount((count) => count + 1);
         }
       }
-    });
+    };
 
+    socket.on('message.sent', onMessageSent);
     return () => {
-      socket.disconnect();
+      socket.off('message.sent', onMessageSent);
+      if (socket.connected) {
+        socket.emit('room.leave', { conversationId });
+      }
     };
   }, [activeConversationId, currentUserId]);
 
@@ -644,7 +649,7 @@ export function VideoCallModal({
                         }
 
                         const senderName = msg.sender?.profile?.displayName || 'Colleague';
-                        const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const timeStr = formatTime(msg.createdAt);
 
                         return (
                           <div

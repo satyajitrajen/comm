@@ -47,7 +47,7 @@ import {
 import { useCallStore } from '../../../store/useCallStore';
 import { callRoomName } from '../../../lib/callRoom';
 import type { Socket } from 'socket.io-client';
-import { createAppSocket } from '../../../lib/socket';
+import { getAppSocket } from '../../../lib/socket';
 
 type GroupInfo = {
   name?: string | null;
@@ -580,30 +580,29 @@ export default function TeamsPage() {
     setShowChannelInfo(false);
   }, [selectedId]);
 
-  // One socket per page; room membership and per-conversation state follow
-  // selectedId via refs and the room effect below, not by reconnecting.
+  // Shared socket; room membership follows selectedId via the effect below.
   useEffect(() => {
-    const socket = createAppSocket();
+    const socket = getAppSocket();
     if (!socket) return;
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    const onConnect = () => {
       const cid = selectedIdRef.current;
       if (cid) {
         socket.emit('room.join', { conversationId: cid });
       }
-    });
+    };
 
-    socket.on('message.sent', (message: BackendMessage & { conversationId: string }) => {
+    const onMessageSent = (message: BackendMessage & { conversationId: string }) => {
       if (message.conversationId === selectedIdRef.current) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === message.id)) return prev;
           return [...prev, message];
         });
       }
-    });
+    };
 
-    socket.on('conversation.deleted', (data: { conversationId: string }) => {
+    const onConversationDeleted = (data: { conversationId: string }) => {
       setChats((prev) => {
         const remaining = prev.filter((c) => c.conversationId !== data.conversationId);
         if (selectedIdRef.current === data.conversationId) {
@@ -613,9 +612,9 @@ export default function TeamsPage() {
         }
         return remaining;
       });
-    });
+    };
 
-    socket.on('message.edited', (data?: { messageId?: string; content?: string }) => {
+    const onMessageEdited = (data?: { messageId?: string; content?: string }) => {
       if (data?.messageId && data?.content) {
         setMessages((prev) =>
           prev.map((m) => (m.id === data.messageId ? { ...m, content: data.content, isEdited: true } : m)),
@@ -623,35 +622,47 @@ export default function TeamsPage() {
       } else {
         loadSurfaceRef.current(selectedIdRef.current);
       }
-    });
+    };
 
-    socket.on('message.deleted', (data?: { messageId?: string }) => {
+    const onMessageDeleted = (data?: { messageId?: string }) => {
       if (data?.messageId) {
         setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
       } else {
         loadSurfaceRef.current(selectedIdRef.current);
       }
       scheduleChatListRefresh(selectedIdRef.current);
-    });
+    };
 
-    socket.on('message.reacted', () => {
+    const onReloadSurface = () => {
       loadSurfaceRef.current(selectedIdRef.current);
-    });
+    };
 
-    socket.on('poll.voted', () => {
-      loadSurfaceRef.current(selectedIdRef.current);
-    });
-
-    socket.on('task.created', () => {
-      loadSurfaceRef.current(selectedIdRef.current);
-    });
-
-    socket.on('user.presence', () => {
+    const onPresence = () => {
       scheduleChatListRefresh(selectedIdRef.current);
-    });
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('message.sent', onMessageSent);
+    socket.on('conversation.deleted', onConversationDeleted);
+    socket.on('message.edited', onMessageEdited);
+    socket.on('message.deleted', onMessageDeleted);
+    socket.on('message.reacted', onReloadSurface);
+    socket.on('poll.voted', onReloadSurface);
+    socket.on('task.created', onReloadSurface);
+    socket.on('user.presence', onPresence);
+
+    if (socket.connected) onConnect();
 
     return () => {
-      socket.disconnect();
+      socket.off('connect', onConnect);
+      socket.off('message.sent', onMessageSent);
+      socket.off('conversation.deleted', onConversationDeleted);
+      socket.off('message.edited', onMessageEdited);
+      socket.off('message.deleted', onMessageDeleted);
+      socket.off('message.reacted', onReloadSurface);
+      socket.off('poll.voted', onReloadSurface);
+      socket.off('task.created', onReloadSurface);
+      socket.off('user.presence', onPresence);
       socketRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -659,7 +670,7 @@ export default function TeamsPage() {
 
   // Room join/leave follows the selected conversation without reconnecting.
   useEffect(() => {
-    const socket = socketRef.current;
+    const socket = socketRef.current ?? getAppSocket();
     if (!socket || !selectedId) return;
 
     socket.emit('room.join', { conversationId: selectedId });

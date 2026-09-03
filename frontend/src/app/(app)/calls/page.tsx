@@ -10,7 +10,7 @@ import {
   Search,
 } from 'lucide-react';
 import { callsAPI, CallHistoryMessage, chatsAPI, usersAPI } from '../../../services/api';
-import { createAppSocket } from '../../../lib/socket';
+import { getAppSocket } from '../../../lib/socket';
 import { avatarAccent, initials, timeAgo } from '../_utils';
 import { useCallStore } from '../../../store/useCallStore';
 import { callRoomName } from '../../../lib/callRoom';
@@ -131,12 +131,12 @@ export default function CallsPage() {
     void loadCallsData();
   }, []);
 
-  // Listen for live call events from WebSocket
+  // Listen for live call events from the shared WebSocket
   useEffect(() => {
-    const socket = createAppSocket();
+    const socket = getAppSocket();
     if (!socket) return;
 
-    socket.on('message.sent', (message: CallHistoryMessage) => {
+    const onMessageSent = (message: CallHistoryMessage) => {
       if (
         message?.messageType?.startsWith('SYSTEM_CALL') ||
         message?.messageType?.startsWith('CALL')
@@ -146,10 +146,11 @@ export default function CallsPage() {
           return [toCallRecord(message, feedMap), ...current];
         });
       }
-    });
+    };
 
+    socket.on('message.sent', onMessageSent);
     return () => {
-      socket.disconnect();
+      socket.off('message.sent', onMessageSent);
     };
   }, [feedMap]);
 

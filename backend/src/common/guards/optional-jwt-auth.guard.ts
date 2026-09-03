@@ -2,12 +2,15 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { getJwtSecret } from '../../config/jwt';
+import { PrismaService } from '../../prisma.service';
+import { isLoginSessionActive } from '../active-session';
 
 interface CustomRequest extends Request {
   user?: {
     sub?: string;
     userId?: string;
     email?: string;
+    sid?: string;
     [key: string]: unknown;
   };
 }
@@ -20,7 +23,10 @@ interface CustomRequest extends Request {
  */
 @Injectable()
 export class OptionalJwtAuthGuard implements CanActivate {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    private prisma: PrismaService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<CustomRequest>();
@@ -32,7 +38,16 @@ export class OptionalJwtAuthGuard implements CanActivate {
       const verified: unknown = await this.jwtService.verifyAsync(token, {
         secret: getJwtSecret(),
       });
-      request.user = verified as CustomRequest['user'];
+      const payload = verified as CustomRequest['user'];
+      const userId = payload?.sub || payload?.userId;
+      const active = await isLoginSessionActive(
+        this.prisma,
+        payload?.sid,
+        userId,
+      );
+      if (active) {
+        request.user = payload;
+      }
     } catch {
       // Invalid or expired tokens are treated as anonymous here; route logic
       // decides what anonymous access is allowed to do.
