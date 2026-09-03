@@ -1,0 +1,16 @@
+[Unit]
+Description=TeamTime Communication API (NestJS)
+After=network.target
+
+[Service]
+Type=simple
+User=azureadmin
+Environment=PATH=/home/azureadmin/.nvm/versions/node/v20.20.0/bin:/usr/bin:/bin
+WorkingDirectory=/home/azureadmin/communication/backend
+EnvironmentFile=/home/azureadmin/communication/backend/.env
+ExecStart=/home/azureadmin/.nvm/versions/node/v20.20.0/bin/node dist/src/main.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -7,19 +7,25 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { getJwtSecret } from '../../config/jwt';
+import { PrismaService } from '../../prisma.service';
+import { assertActiveLoginSession } from '../active-session';
 
 interface CustomRequest extends Request {
   user?: {
     sub?: string;
     userId?: string;
     email?: string;
+    sid?: string;
     [key: string]: unknown;
   };
 }
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    private prisma: PrismaService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<CustomRequest>();
@@ -37,10 +43,16 @@ export class JwtAuthGuard implements CanActivate {
         sub?: string;
         userId?: string;
         email?: string;
+        sid?: string;
       };
-      // Attach the payload to the request object so that controllers can access it
+      await assertActiveLoginSession(
+        this.prisma,
+        payload.sid,
+        payload.sub || payload.userId,
+      );
       request.user = payload;
-    } catch {
+    } catch (e: unknown) {
+      if (e instanceof UnauthorizedException) throw e;
       throw new UnauthorizedException(
         'Authentication token is invalid or expired',
       );

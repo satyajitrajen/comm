@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { chatsAPI, usersAPI, adminAPI } from '../../../services/api';
-import { createAppSocket } from '../../../lib/socket';
+import { getAppSocket } from '../../../lib/socket';
 import { avatarAccent, initials } from '../_utils';
 import { isOnline, statusDotClass, statusLabel } from '../../../lib/statusAvailability';
 import { roleLabel } from '../../../lib/enumLabels';
@@ -103,12 +103,12 @@ export default function PeoplePage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // Live WebSocket presence update
+  // Live WebSocket presence update (shared socket)
   useEffect(() => {
-    const socket = createAppSocket();
+    const socket = getAppSocket();
     if (!socket) return;
 
-    socket.on('user.presence', (data: { userId: string; presence?: string; isOnline?: boolean }) => {
+    const onPresence = (data: { userId: string; presence?: string; isOnline?: boolean }) => {
       if (!data?.userId) return;
       setPeople((prev) =>
         prev.map((p) =>
@@ -117,10 +117,11 @@ export default function PeoplePage() {
             : p,
         ),
       );
-    });
+    };
 
+    socket.on('user.presence', onPresence);
     return () => {
-      socket.disconnect();
+      socket.off('user.presence', onPresence);
     };
   }, []);
 

@@ -42,8 +42,13 @@ export class AuthService {
     private mailService: MailService,
   ) {}
 
+  /**
+   * Hard ceiling for the JWT clock. Real expiry is logout (LoginSession
+   * revoked + `sid` checked on every request). Keep a long TTL so sockets
+   * do not die mid-day from a 30m access token.
+   */
   private accessTokenExpiresIn(): string {
-    return process.env.ACCESS_TOKEN_EXPIRES_IN?.trim() || '30m';
+    return process.env.ACCESS_TOKEN_EXPIRES_IN?.trim() || '365d';
   }
 
   async register(body: {
@@ -457,6 +462,7 @@ export class AuthService {
         sub: user.id,
         email: user.email,
         phoneNumber: user.phoneNumber,
+        sid: session.id,
       },
       {
         expiresIn: this.accessTokenExpiresIn() as JwtSignOptions['expiresIn'],
@@ -494,17 +500,6 @@ export class AuthService {
     ipAddress: string,
     userAgent: string,
   ) {
-    const accessToken = this.jwtService.sign(
-      {
-        sub: user.id,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-      },
-      {
-        expiresIn: this.accessTokenExpiresIn() as JwtSignOptions['expiresIn'],
-      },
-    );
-
     const refreshToken = randomUUID();
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
 
@@ -516,6 +511,18 @@ export class AuthService {
         userAgent,
       },
     });
+
+    const accessToken = this.jwtService.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        sid: session.id,
+      },
+      {
+        expiresIn: this.accessTokenExpiresIn() as JwtSignOptions['expiresIn'],
+      },
+    );
 
     const workspaceUser = await this.prisma.workspaceUser.findFirst({
       where: { userId: user.id, isActive: true },

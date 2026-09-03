@@ -9,7 +9,9 @@ import { getJwtSecret } from '../../config/jwt';
     JwtModule.register({
       secret: getJwtSecret(),
       signOptions: {
-        expiresIn: '30m',
+        // Default only; AuthService overrides per-token via ACCESS_TOKEN_EXPIRES_IN.
+        // Real session end is logout (LoginSession.isRevoked + JWT `sid` check).
+        expiresIn: '365d',
       },
     }),
   ],

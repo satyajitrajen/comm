@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { disconnectAppSocket } from '../lib/socket';
 
 export interface User {
   id: string;
@@ -117,6 +118,7 @@ export const useChatStore = create<ChatStore>((set) => ({
   }),
 
   logout: () => set(() => {
+    disconnectAppSocket();
     localStorage.removeItem('veloce_user');
     localStorage.removeItem('veloce_token');
     localStorage.removeItem('veloce_refresh');

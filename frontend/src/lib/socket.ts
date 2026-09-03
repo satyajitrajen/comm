@@ -9,23 +9,18 @@ export function getCurrentSocketToken(): string | null {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
-export type AppSocketOptions = {
-  auth?: { token?: string | null };
-};
-
 /**
- * Single place where app sockets are created. Auth is read from localStorage at
- * creation and re-read on every reconnect attempt, so a token rotated elsewhere
- * (another tab, or after an HTTP refresh) is picked up without tearing the
- * socket down. Returns null when there is no token, mirroring the previous
- * `if (!token) return;` guards at each call site.
+ * One Socket.IO connection for the whole authenticated browser tab.
+ * Pages/hooks attach listeners and must remove them on unmount — they must
+ * NOT call disconnect(). Only disconnectAppSocket() (logout) tears it down.
  */
-export function createAppSocket(options?: AppSocketOptions): Socket | null {
-  const token = options?.auth?.token ?? getCurrentSocketToken();
-  if (!token) return null;
+let sharedSocket: Socket | null = null;
 
+function createSharedSocket(token: string): Socket {
   const socketUrl = resolveServiceBaseUrl();
-  const socket = socketUrl ? io(socketUrl, { auth: { token } }) : io({ auth: { token } });
+  const socket = socketUrl
+    ? io(socketUrl, { auth: { token } })
+    : io({ auth: { token } });
 
   // socket.io re-sends `auth` on every attempt, so refresh it from storage.
   socket.on('reconnect_attempt', () => {
@@ -33,4 +28,37 @@ export function createAppSocket(options?: AppSocketOptions): Socket | null {
   });
 
   return socket;
+}
+
+/**
+ * Returns the shared app socket, creating it on first use when a token exists.
+ * Safe to call from any page — always the same instance within a tab.
+ */
+export function getAppSocket(): Socket | null {
+  if (typeof window === 'undefined') return null;
+
+  const token = getCurrentSocketToken();
+  if (!token) return null;
+
+  if (!sharedSocket) {
+    sharedSocket = createSharedSocket(token);
+  } else {
+    sharedSocket.auth = { token };
+    if (!sharedSocket.connected && !sharedSocket.active) {
+      sharedSocket.connect();
+    }
+  }
+
+  return sharedSocket;
+}
+
+/**
+ * Tear down the shared socket. Call on logout (or forced session end).
+ * Component unmounts must only `socket.off(...)`, never this.
+ */
+export function disconnectAppSocket(): void {
+  if (!sharedSocket) return;
+  sharedSocket.removeAllListeners();
+  sharedSocket.disconnect();
+  sharedSocket = null;
 }

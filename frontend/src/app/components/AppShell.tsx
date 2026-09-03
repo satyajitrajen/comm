@@ -31,7 +31,8 @@ import { toPlainText } from '../../lib/mentions';
 import { isValidName, sanitizeName } from '../../lib/nameValidation';
 import { useChatStore } from '../../store/useChatStore';
 import { useNotifications } from '../../hooks/useNotifications';
-import { createAppSocket } from '../../lib/socket';
+import { getAppSocket } from '../../lib/socket';
+import { formatDateTime, formatTime } from '../(app)/_utils';
 import Portal from './Portal';
 import ChangePasswordModal from './ChangePasswordModal';
 import { VideoCallModal } from './VideoCallModal';
@@ -311,7 +312,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { notify } = useNotifications();
 
   useEffect(() => {
-    const socket = createAppSocket();
+    const socket = getAppSocket();
     if (!socket) return;
 
     let currentUserId = '';
@@ -320,12 +321,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
       if (stored) currentUserId = JSON.parse(stored)?.id || '';
     } catch { /* ignore */ }
 
-    // Own presence is simply whether this socket is up. It is never stored,
-    // and there is no way to set it by hand.
-    socket.on('connect', () => setSocketConnected(true));
-    socket.on('disconnect', () => setSocketConnected(false));
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => setSocketConnected(false);
 
-    socket.on('message.notify', (payload: {
+    const onMessageNotify = (payload: {
       conversationType: string;
       message: {
         id: string;
@@ -337,7 +336,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }) => {
       const message = payload.message;
       if (!message?.conversationId) return;
-      // Don't notify for own messages
       if (message.senderId === currentUserId) return;
 
       const senderName = message.sender?.profile?.displayName || 'Someone';
@@ -354,19 +352,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
       notify({
         title: `New message from ${senderName}`,
         body: preview,
-        tag: `msg-${message.conversationId}`, // groups notifications per conversation
+        tag: `msg-${message.conversationId}`,
         onClick: () => {
           window.location.href = href;
         },
       });
 
       sendDesktopNotification(`New message from ${senderName}`, { body: preview });
-
-      // Also bump the unread count badge
       setUnreadNotifications((n) => n + 1);
-    });
+    };
 
-    socket.on('event.created', (event: {
+    const onEventCreated = (event: {
       id: string;
       title: string;
       startsAt: string;
@@ -375,7 +371,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }) => {
       notify({
         title: `New Event: ${event.title}`,
-        body: `Invited by ${event.creatorName}. Starts on ${new Date(event.startsAt).toLocaleString()}`,
+        body: `Invited by ${event.creatorName}. Starts on ${formatDateTime(event.startsAt)} IST`,
         tag: `event-${event.id}`,
         tone: 'event',
         onClick: () => {
@@ -386,9 +382,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
         body: `Invited by ${event.creatorName}`,
       });
       setUnreadNotifications((n) => n + 1);
-    });
+    };
 
-    socket.on('event.reminder', (event: {
+    const onEventReminder = (event: {
       id: string;
       title: string;
       startsAt: string;
@@ -396,7 +392,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }) => {
       notify({
         title: `Event Starting Soon: ${event.title}`,
-        body: `Starts at ${new Date(event.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.${event.meetingLink ? ' Click to join meeting.' : ''}`,
+        body: `Starts at ${formatTime(event.startsAt)} IST.${event.meetingLink ? ' Click to join meeting.' : ''}`,
         tag: `reminder-${event.id}`,
         tone: 'event',
         onClick: () => {
@@ -408,13 +404,25 @@ export default function AppShell({ children }: { children: ReactNode }) {
         },
       });
       sendDesktopNotification(`Event Starting Soon: ${event.title}`, {
-        body: `Starts at ${new Date(event.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        body: `Starts at ${formatTime(event.startsAt)} IST`,
       });
       setUnreadNotifications((n) => n + 1);
-    });
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('message.notify', onMessageNotify);
+    socket.on('event.created', onEventCreated);
+    socket.on('event.reminder', onEventReminder);
+
+    if (socket.connected) setSocketConnected(true);
 
     return () => {
-      socket.disconnect();
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('message.notify', onMessageNotify);
+      socket.off('event.created', onEventCreated);
+      socket.off('event.reminder', onEventReminder);
     };
   }, [notify]);
 

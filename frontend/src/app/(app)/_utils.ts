@@ -24,6 +24,9 @@ export function avatarAccent(seed?: string | null) {
   return accents[value % accents.length];
 }
 
+/** TeamTime displays all wall-clock times in IST. */
+export const APP_TIMEZONE = 'Asia/Kolkata';
+
 export function timeAgo(iso?: string | null) {
   if (!iso) return '';
   const timestamp = new Date(iso).getTime();
@@ -41,18 +44,77 @@ export function formatDateTime(iso?: string | null) {
   if (!iso) return '';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: APP_TIMEZONE,
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
+export function formatTime(iso?: string | null) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: APP_TIMEZONE,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
+export function formatDateLong(iso?: string | Date | null) {
+  if (!iso) return '';
+  const date = typeof iso === 'string' ? new Date(iso) : iso;
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: APP_TIMEZONE,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+export function formatDateShort(iso?: string | null) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: APP_TIMEZONE,
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+}
+
+export function formatDateOnly(iso?: string | null) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   }).format(date);
 }
 
 export function formatDateInput(date = new Date()) {
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
+  // Format as YYYY-MM-DDTHH:mm in IST for datetime-local inputs.
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;

@@ -16,6 +16,7 @@ import { getJwtSecret } from '../../config/jwt';
 import { isCorsOriginAllowed } from '../../config/cors-origins';
 import { PresenceService } from '../../common/presence.service';
 import { PushService } from '../../common/push.service';
+import { assertActiveLoginSession } from '../../common/active-session';
 
 interface CustomSocket extends Socket {
   data: {
@@ -97,13 +98,16 @@ export class RealtimeGateway
       const verified: unknown = await this.jwtService.verifyAsync(token, {
         secret: getJwtSecret(),
       });
-      const payload = verified as { sub?: string };
+      const payload = verified as { sub?: string; sid?: string };
 
       const userId = payload.sub;
       if (!userId) {
         client.disconnect();
         return;
       }
+      // Logout revokes LoginSession; reject immediately so sockets do not
+      // keep working until the JWT clock expires.
+      await assertActiveLoginSession(this.prisma, payload.sid, userId);
       client.data.userId = userId;
       const cameOnline = this.presence.connect(userId, client.id);
 

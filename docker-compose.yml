@@ -29,12 +29,12 @@ services:
       # JWT_SECRET / SMTP_* / CLOUDINARY_* come from env_file (backend/.env)
       - DATABASE_URL=${DATABASE_URL:-file:/var/lib/teamtime/dev.db}
       - UPLOAD_DIR=/app/uploads
-      - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-30m}
       - TWO_FACTOR_LOG_OTP=${TWO_FACTOR_LOG_OTP:-false}
       - THROTTLE_TTL_MS=${THROTTLE_TTL_MS:-60000}
       - THROTTLE_LIMIT=${THROTTLE_LIMIT:-600}
       - PRISMA_DB_PUSH=${PRISMA_DB_PUSH:-false}
       - APP_ORIGIN=${APP_ORIGIN:-https://communication.impmeet.com}
+      - TZ=Asia/Kolkata
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

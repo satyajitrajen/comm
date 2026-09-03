@@ -5,7 +5,7 @@ import { Socket } from 'socket.io-client';
 import { useCallStore } from '../store/useCallStore';
 import type { CallConversationType } from '../lib/callRoom';
 import { sendDesktopNotification } from '../lib/desktopRuntime';
-import { createAppSocket } from '../lib/socket';
+import { getAppSocket } from '../lib/socket';
 
 export type IncomingCall = {
   conversationId: string;
@@ -18,8 +18,7 @@ export type IncomingCall = {
 
 /**
  * Manages outgoing call invitations and incoming call events via WebSocket.
- * Returns helpers to invite, decline, cancel, join, and end a call, plus any
- * incoming call state.
+ * Uses the shared app socket — does not open or close the connection.
  */
 export function useCallSignaling(activeConversationId?: string) {
   const socketRef = useRef<Socket | null>(null);
@@ -39,9 +38,8 @@ export function useCallSignaling(activeConversationId?: string) {
     store.endCall();
   };
 
-  // One long-lived socket per hook instance (do not reconnect when conversation changes).
   useEffect(() => {
-    const socket = createAppSocket();
+    const socket = getAppSocket();
     if (!socket) return;
     socketRef.current = socket;
 
@@ -52,12 +50,8 @@ export function useCallSignaling(activeConversationId?: string) {
       }
     };
 
-    socket.on('connect', joinIfNeeded);
-
-    socket.on('call.incoming', (data: IncomingCall) => {
+    const onIncoming = (data: IncomingCall) => {
       const store = useCallStore.getState();
-      // Reject new incoming calls while already in an active call,
-      // but only if it's a genuinely different call.
       if (store.activeCall) {
         const sameCall =
           store.activeCall.conversationId === data.conversationId ||
@@ -78,23 +72,25 @@ export function useCallSignaling(activeConversationId?: string) {
         tag: `call-${data.conversationId}`,
       });
 
-      // Browser notification for incoming call
       if ('Notification' in window && Notification.permission === 'granted') {
         const n = new Notification(`📹 Incoming call from ${data.callerName}`, {
           body: `In ${data.conversationName} — tap to open`,
           icon: '/favicon.ico',
           tag: `call-${data.conversationId}`,
-          requireInteraction: true, // stays until user interacts
+          requireInteraction: true,
         });
         n.onclick = () => {
           window.focus();
           n.close();
         };
       }
-    });
+    };
 
-    // Caller side: other user accepted
-    socket.on('call.accepted', (data: { conversationId: string; roomName?: string; conversationName?: string }) => {
+    const onAccepted = (data: {
+      conversationId: string;
+      roomName?: string;
+      conversationName?: string;
+    }) => {
       setIncomingCall(null);
       const store = useCallStore.getState();
       if (!store.outgoingCall) return;
@@ -104,10 +100,9 @@ export function useCallSignaling(activeConversationId?: string) {
         roomName: data?.roomName || store.outgoingCall.roomName,
         conversationName: data?.conversationName || store.outgoingCall.conversationName,
       });
-    });
+    };
 
-    // Caller side: other user declined
-    socket.on('call.declined', (data: { conversationId: string; declinedByName?: string }) => {
+    const onDeclined = (data: { conversationId: string; declinedByName?: string }) => {
       setIncomingCall(null);
       const store = useCallStore.getState();
       if (data?.conversationId && store.outgoingCall?.conversationId !== data.conversationId) return;
@@ -115,49 +110,57 @@ export function useCallSignaling(activeConversationId?: string) {
       const notice = data?.declinedByName ? `Call declined by ${data.declinedByName}` : 'Call declined';
       store.setCallNotice(notice);
       setTimeout(() => useCallStore.getState().setCallNotice(null), 4000);
-    });
+    };
 
-    socket.on('message.sent', (msg: { conversationId?: string; messageType?: string }) => {
+    const onMessageSent = (msg: { conversationId?: string; messageType?: string }) => {
       if (msg?.messageType === 'SYSTEM_CALL_DECLINE') {
         const store = useCallStore.getState();
         if (msg.conversationId && store.outgoingCall?.conversationId !== msg.conversationId) return;
         store.clearOutgoingCall();
       }
-    });
+    };
 
-    // Last participant left — the call is over for everyone in the conversation.
-    socket.on('call.ended', (data: { conversationId: string }) => {
+    const onEnded = (data: { conversationId: string }) => {
       closeCallIfMatching(data.conversationId);
-    });
+    };
 
-    // This user left but others remain — close only their own UI.
-    socket.on('call.left', (data: { conversationId: string }) => {
+    const onLeft = (data: { conversationId: string }) => {
       closeCallIfMatching(data.conversationId);
-    });
+    };
 
-    // Caller cancelled before anyone joined.
-    socket.on('call.cancelled', (data: { conversationId: string }) => {
+    const onCancelled = (data: { conversationId: string }) => {
       closeCallIfMatching(data.conversationId);
-    });
+    };
 
-    // Call escalated from 2-person direct to 3+ person group call
-    socket.on('call.escalated', (data: { roomName?: string; conversationId: string; conversationName?: string }) => {
+    const onEscalated = (data: {
+      roomName?: string;
+      conversationId: string;
+      conversationName?: string;
+    }) => {
       const store = useCallStore.getState();
       if (store.activeCall && (!data.roomName || store.activeCall.roomName === data.roomName)) {
         store.updateConversationId(data.conversationId, data.conversationName);
         store.setCallNotice(`Call upgraded to group: ${data.conversationName || 'Group Call'}`);
         setTimeout(() => useCallStore.getState().setCallNotice(null), 4000);
       }
-    });
+    };
 
-    // Another participant joined the active call.
-    socket.on('call.joined', (data: { conversationId: string; joinedBy: string; roomName: string; conversationName?: string }) => {
+    const onJoined = (data: {
+      conversationId: string;
+      joinedBy: string;
+      roomName: string;
+      conversationName?: string;
+    }) => {
       const store = useCallStore.getState();
       if (store.activeCall && store.activeCall.roomName === data.roomName) {
         store.setCallNotice('A participant joined the call');
         setTimeout(() => useCallStore.getState().setCallNotice(null), 3000);
       }
-    });
+    };
+
+    const onDisconnect = () => {
+      setIncomingCall(null);
+    };
 
     const handleBeforeUnload = () => {
       const store = useCallStore.getState();
@@ -177,9 +180,17 @@ export function useCallSignaling(activeConversationId?: string) {
     };
     window.addEventListener('pagehide', handlePageHide);
 
-    socket.on('disconnect', () => {
-      setIncomingCall(null);
-    });
+    socket.on('connect', joinIfNeeded);
+    socket.on('call.incoming', onIncoming);
+    socket.on('call.accepted', onAccepted);
+    socket.on('call.declined', onDeclined);
+    socket.on('message.sent', onMessageSent);
+    socket.on('call.ended', onEnded);
+    socket.on('call.left', onLeft);
+    socket.on('call.cancelled', onCancelled);
+    socket.on('call.escalated', onEscalated);
+    socket.on('call.joined', onJoined);
+    socket.on('disconnect', onDisconnect);
 
     if (socket.connected) {
       joinIfNeeded();
@@ -188,14 +199,23 @@ export function useCallSignaling(activeConversationId?: string) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
-      socket.disconnect();
+      socket.off('connect', joinIfNeeded);
+      socket.off('call.incoming', onIncoming);
+      socket.off('call.accepted', onAccepted);
+      socket.off('call.declined', onDeclined);
+      socket.off('message.sent', onMessageSent);
+      socket.off('call.ended', onEnded);
+      socket.off('call.left', onLeft);
+      socket.off('call.cancelled', onCancelled);
+      socket.off('call.escalated', onEscalated);
+      socket.off('call.joined', onJoined);
+      socket.off('disconnect', onDisconnect);
       socketRef.current = null;
     };
   }, []);
 
-  // Join/leave conversation rooms when selection changes (without tearing down the socket).
   useEffect(() => {
-    const socket = socketRef.current;
+    const socket = socketRef.current ?? getAppSocket();
     const id = activeConversationId;
     if (!socket?.connected || !id) return;
 
@@ -208,7 +228,6 @@ export function useCallSignaling(activeConversationId?: string) {
     };
   }, [activeConversationId]);
 
-  /** Emit a call invitation to all participants in a conversation */
   const inviteToCall = useCallback(
     (
       conversationId: string,
@@ -216,7 +235,7 @@ export function useCallSignaling(activeConversationId?: string) {
       callerName: string,
       conversationName: string,
     ) => {
-      socketRef.current?.emit('call.invite', {
+      (socketRef.current ?? getAppSocket())?.emit('call.invite', {
         conversationId,
         roomName,
         callerName,
@@ -226,7 +245,6 @@ export function useCallSignaling(activeConversationId?: string) {
     [],
   );
 
-  /** Accept an incoming call */
   const acceptCall = useCallback(
     (
       conversationId: string,
@@ -234,7 +252,7 @@ export function useCallSignaling(activeConversationId?: string) {
       roomName: string,
       conversationName: string,
     ) => {
-      socketRef.current?.emit('call.accept', {
+      (socketRef.current ?? getAppSocket())?.emit('call.accept', {
         conversationId,
         callerId,
         roomName,
@@ -245,22 +263,22 @@ export function useCallSignaling(activeConversationId?: string) {
     [],
   );
 
-  /** Decline an incoming call */
   const declineCall = useCallback((conversationId: string, callerId: string) => {
-    socketRef.current?.emit('call.decline', { conversationId, callerId });
+    (socketRef.current ?? getAppSocket())?.emit('call.decline', { conversationId, callerId });
     setIncomingCall(null);
   }, []);
 
-  /** Cancel an outgoing (ringing) call without ending it for others */
   const cancelCall = useCallback(
     (conversationId: string, roomName: string, callerName: string) => {
-      socketRef.current?.emit('call.cancel', { conversationId, roomName, callerName });
+      (socketRef.current ?? getAppSocket())?.emit('call.cancel', {
+        conversationId,
+        roomName,
+        callerName,
+      });
     },
     [],
   );
 
-  /** Join an already-live call (e.g. from a Join Call button).
-   *  The server returns the actual roomName (important for escalated calls). */
   const joinCall = useCallback(
     (
       conversationId: string,
@@ -268,7 +286,7 @@ export function useCallSignaling(activeConversationId?: string) {
       conversationName: string,
       onJoined?: (actualRoomName: string, actualConversationId: string) => void,
     ) => {
-      socketRef.current?.emit(
+      (socketRef.current ?? getAppSocket())?.emit(
         'call.join',
         { conversationId, roomName, conversationName },
         (response: { status: string; roomName?: string; conversationId?: string }) => {
@@ -284,9 +302,8 @@ export function useCallSignaling(activeConversationId?: string) {
     [],
   );
 
-  /** Leave an ongoing call */
   const endCall = useCallback((conversationId: string, roomName?: string) => {
-    socketRef.current?.emit('call.end', { conversationId, roomName });
+    (socketRef.current ?? getAppSocket())?.emit('call.end', { conversationId, roomName });
   }, []);
 
   return {

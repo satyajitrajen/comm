@@ -15,7 +15,7 @@ import {
   Star,
 } from 'lucide-react';
 import { dashboardAPI } from '../../../services/api';
-import { formatDateTime, initials, avatarAccent, timeAgo } from '../_utils';
+import { formatDateTime, formatTime, initials, avatarAccent, timeAgo, APP_TIMEZONE } from '../_utils';
 
 type DashboardTask = {
   id: string;
@@ -102,16 +102,21 @@ const priorityDot: Record<string, string> = {
 
 function formatEventTime(iso: string) {
   const d = new Date(iso);
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
+  const istDay = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const todayKey = istDay.format(new Date());
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowKey = istDay.format(tomorrow);
+  const eventKey = istDay.format(d);
 
-  const isToday = d.toDateString() === today.toDateString();
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (isToday) return `Today · ${time}`;
-  if (isTomorrow) return `Tomorrow · ${time}`;
+  const time = formatTime(iso);
+  if (eventKey === todayKey) return `Today · ${time}`;
+  if (eventKey === tomorrowKey) return `Tomorrow · ${time}`;
   return formatDateTime(iso);
 }
 
