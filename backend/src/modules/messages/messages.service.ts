@@ -65,7 +65,14 @@ export class MessagesService {
         conversationId: true,
         senderId: true,
         content: true,
+        messageType: true,
+        priority: true,
         createdAt: true,
+        attachments: {
+          include: {
+            file: true,
+          },
+        },
         conversation: {
           select: {
             workspaceId: true,
@@ -359,7 +366,7 @@ export class MessagesService {
       const updated = await this.prisma.message.update({
         where: { id: messageId },
         data: {
-          content: 'This message was deleted',
+          content: 'This message has been deleted',
           isDeletedGlobally: true,
         },
       });
@@ -758,22 +765,44 @@ export class MessagesService {
       data: { forwardedCount: { increment: 1 } },
     });
 
-    const forwarded = await this.prisma.message.create({
-      data: {
-        conversationId: targetConversationId,
-        senderId: userId,
-        content: source.content,
-        messageType: 'TEXT',
-        priority: 'NORMAL',
-      },
-      include: {
-        sender: { include: { profile: true } },
-        reactions: true,
-        attachments: { include: { file: true } },
-        reads: true,
-        deliveries: true,
-      },
+    const forwarded = await this.prisma.$transaction(async (tx) => {
+      const msg = await tx.message.create({
+        data: {
+          conversationId: targetConversationId,
+          senderId: userId,
+          content: source.content,
+          messageType: source.messageType || 'TEXT',
+          priority: source.priority || 'NORMAL',
+        },
+      });
+
+      if (source.attachments && source.attachments.length > 0) {
+        for (const att of source.attachments) {
+          await tx.messageAttachment.create({
+            data: {
+              messageId: msg.id,
+              fileId: att.fileId,
+              caption: att.caption,
+            },
+          });
+        }
+      }
+
+      return tx.message.findUnique({
+        where: { id: msg.id },
+        include: {
+          sender: { include: { profile: true } },
+          reactions: true,
+          attachments: { include: { file: true } },
+          reads: true,
+          deliveries: true,
+        },
+      });
     });
+
+    if (!forwarded) {
+      throw new BadRequestException('Failed to forward message');
+    }
 
     const room = `conversation:${targetConversationId}`;
     this.realtimeGateway.broadcastToRoom(room, 'message.sent', forwarded);

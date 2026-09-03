@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
+import { CALL_MESSAGE_TYPES } from '../chats/chats.service';
 
 @Injectable()
 export class DashboardService {
@@ -87,6 +88,11 @@ export class DashboardService {
             take: 3,
           },
           messages: {
+            where: {
+              messageType: {
+                notIn: CALL_MESSAGE_TYPES,
+              },
+            },
             orderBy: { createdAt: 'desc' },
             take: 1,
           },

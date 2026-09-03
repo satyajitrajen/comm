@@ -17,6 +17,17 @@ import {
 import { dashboardAPI } from '../../../services/api';
 import { formatDateTime, formatTime, initials, avatarAccent, timeAgo, APP_TIMEZONE } from '../_utils';
 
+function isCallSnippet(content?: string | null) {
+  if (!content) return false;
+  return (
+    content.includes('ended the video call') ||
+    content.includes('started a call') ||
+    content.includes('ended the audio call') ||
+    content.startsWith('📹') ||
+    content.startsWith('📞')
+  );
+}
+
 type DashboardTask = {
   id: string;
   title: string;
@@ -227,11 +238,11 @@ export default function HomePage() {
                           </span>
                         </div>
                         <p className="truncate text-xs text-slate-400 mt-0.5">
-                          {convo.lastMessage?.content ? toPlainText(convo.lastMessage.content) : 'No messages yet'}
+                          {convo.lastMessage?.content && !isCallSnippet(convo.lastMessage.content) ? toPlainText(convo.lastMessage.content) : 'No messages yet'}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
-                        <span className="text-[11px] text-slate-400">{timeAgo(convo.lastMessage?.createdAt)}</span>
+                        <span className="text-[11px] text-slate-400">{convo.lastMessage?.createdAt && !isCallSnippet(convo.lastMessage.content) ? timeAgo(convo.lastMessage.createdAt) : ''}</span>
                         <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400 transition" />
                       </div>
                     </Link>

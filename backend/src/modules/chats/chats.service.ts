@@ -13,6 +13,17 @@ const DEFAULT_MESSAGE_PAGE_SIZE = 50;
 /** Ceiling so a hand-crafted `limit` cannot reinstate the unbounded fetch. */
 const MAX_MESSAGE_PAGE_SIZE = 100;
 
+export const CALL_MESSAGE_TYPES = [
+  'SYSTEM_CALL_START',
+  'SYSTEM_CALL_END',
+  'SYSTEM_CALL_DECLINE',
+  'CALL',
+  'CALL_MISSED',
+  'CALL_ENDED',
+  'VIDEO_CALL',
+  'AUDIO_CALL',
+];
+
 /** Everything the transcript needs to render one message. */
 const MESSAGE_INCLUDE = {
   sender: { include: { profile: true } },
@@ -849,6 +860,11 @@ export class ChatsService {
               },
             },
             messages: {
+              where: {
+                messageType: {
+                  notIn: CALL_MESSAGE_TYPES,
+                },
+              },
               orderBy: { createdAt: 'desc' },
               take: 1,
             },
@@ -875,6 +891,9 @@ export class ChatsService {
           where: {
             conversationId: c.id,
             senderId: { not: userId },
+            messageType: {
+              notIn: CALL_MESSAGE_TYPES,
+            },
             reads: {
               none: { userId },
             },
@@ -975,7 +994,10 @@ export class ChatsService {
     const half = Math.max(Math.floor(limit / 2), 1);
     const notDeletedForUser = {
       conversationId,
-      NOT: { deletions: { some: { deletedBy: userId } } },
+      OR: [
+        { isDeletedGlobally: true },
+        { NOT: { deletions: { some: { deletedBy: userId } } } },
+      ],
     };
 
     const [olderDesc, newerAsc] = await Promise.all([
@@ -1077,13 +1099,20 @@ export class ChatsService {
     const rows = await this.prisma.message.findMany({
       where: {
         conversationId,
-        // Exclude messages the requesting user deleted for themselves
-        NOT: { deletions: { some: { deletedBy: userId } } },
+        // Exclude messages the requesting user deleted for themselves, unless deleted globally
+        OR: [
+          { isDeletedGlobally: true },
+          { NOT: { deletions: { some: { deletedBy: userId } } } },
+        ],
         ...(cursor
           ? {
-              OR: [
-                { createdAt: { lt: cursor.createdAt } },
-                { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+              AND: [
+                {
+                  OR: [
+                    { createdAt: { lt: cursor.createdAt } },
+                    { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+                  ],
+                },
               ],
             }
           : {}),

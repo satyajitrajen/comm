@@ -1,10 +1,10 @@
 'use client';
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Plus, RefreshCw, Search, Send, Users, X, Paperclip, Smile, FileText, BarChart2, CheckSquare, Video, User, Mail, Info } from 'lucide-react';
+import { ChevronLeft, Plus, RefreshCw, Search, Send, Users, X, Paperclip, Smile, FileText, BarChart2, CheckSquare, Video, User, Mail, Info, Download } from 'lucide-react';
 import { chatsAPI, messagesAPI, usersAPI, filesAPI, tasksAPI } from '../../../services/api';
 import { toPlainText } from '../../../lib/mentions';
-import { avatarAccent, initials, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, saveBlob, timeAgo } from '../_utils';
+import { avatarAccent, formatFileSize, initials, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, saveBlob, timeAgo } from '../_utils';
 import Portal from '../../components/Portal';
 import { MessageBubble, PollData, TaskData, useNow } from '../../components/MessageBubble';
 import CreatePollModal from '../../components/CreatePollModal';
@@ -76,7 +76,18 @@ function chatName(chat: DirectChat) {
   );
 }
 
-function ImageAttachment({ fileId, filename }: { fileId: string; filename: string }) {
+function isCallSnippet(content?: string | null) {
+  if (!content) return false;
+  return (
+    content.includes('ended the video call') ||
+    content.includes('started a call') ||
+    content.includes('ended the audio call') ||
+    content.startsWith('📹') ||
+    content.startsWith('📞')
+  );
+}
+
+function ImageAttachment({ fileId, filename, onDownload }: { fileId: string; filename: string; onDownload?: () => void }) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     let objectUrl: string;
@@ -90,7 +101,24 @@ function ImageAttachment({ fileId, filename }: { fileId: string; filename: strin
   }, [fileId]);
   
   if (!src) return <div className="h-32 w-32 animate-pulse bg-slate-200 rounded-lg"></div>;
-  return <img src={src} alt={filename} className="max-w-full max-h-64 rounded-lg object-contain" />;
+  return (
+    <div className="relative group/img inline-block overflow-hidden rounded-lg">
+      <img src={src} alt={filename} className="max-w-full max-h-64 rounded-lg object-contain" />
+      {onDownload && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload();
+          }}
+          className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/60 hover:bg-black/80 text-white shadow-md transition opacity-0 group-hover/img:opacity-100 cursor-pointer"
+          title={`Download ${filename}`}
+        >
+          <Download className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
 }
 
 export default function DMsPage() {
@@ -387,9 +415,20 @@ export default function DMsPage() {
       }
     };
 
-    const onMessageDeleted = (data?: { messageId?: string }) => {
+    const onMessageDeleted = (data?: { messageId?: string; content?: string }) => {
       if (data?.messageId) {
-        setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === data.messageId
+              ? {
+                  ...m,
+                  content: data.content || 'This message has been deleted',
+                  isDeletedGlobally: true,
+                  attachments: [],
+                }
+              : m,
+          ),
+        );
       } else {
         loadMessages(selectedIdRef.current);
       }
@@ -662,13 +701,18 @@ export default function DMsPage() {
       } else if (action === 'delete') {
         const everyone = payload === 'everyone';
         await messagesAPI.delete(messageId, everyone);
-        if (everyone) {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === messageId ? { ...m, content: 'This message was deleted', isDeletedGlobally: true } : m)),
-          );
-        } else {
-          setMessages((prev) => prev.filter((m) => m.id !== messageId));
-        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  content: 'This message has been deleted',
+                  isDeletedGlobally: true,
+                  attachments: [],
+                }
+              : m,
+          ),
+        );
       } else if (action === 'star') {
         await messagesAPI.star(messageId);
       } else if (action === 'unstar') {
@@ -678,7 +722,15 @@ export default function DMsPage() {
       } else if (action === 'unpin') {
         if (selectedId) await messagesAPI.unpin(messageId, selectedId);
       } else if (action === 'forward') {
-        if (payload) await messagesAPI.forward(messageId, payload);
+        if (payload) {
+          const forwarded = await messagesAPI.forward(messageId, payload);
+          if (payload === selectedId && forwarded) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === forwarded.id)) return prev;
+              return [...prev, forwarded];
+            });
+          }
+        }
       } else if (action === 'reply') {
         setSelectedThreadId(messageId);
       } else if (action === 'votePoll' && payload) {
@@ -764,10 +816,10 @@ export default function DMsPage() {
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-semibold text-slate-900">{name}</span>
-                      <span className="shrink-0 text-xs text-slate-400">{timeAgo(chat.lastMessage?.createdAt)}</span>
+                      <span className="shrink-0 text-xs text-slate-400">{chat.lastMessage?.createdAt && !isCallSnippet(chat.lastMessage?.content) ? timeAgo(chat.lastMessage.createdAt) : ''}</span>
                     </span>
                     <span className="mt-0.5 flex items-center justify-between gap-2">
-                      <span className="truncate text-xs text-slate-500">{chat.lastMessage?.content ? toPlainText(chat.lastMessage.content) : 'No messages yet'}</span>
+                      <span className="truncate text-xs text-slate-500">{chat.lastMessage?.content && !isCallSnippet(chat.lastMessage.content) ? toPlainText(chat.lastMessage.content) : 'No messages yet'}</span>
                       {!!chat.unreadCount && (
                         <span
                           className="min-w-5 rounded-full bg-blue-600 px-1.5 text-center text-[10px] font-bold text-white"
@@ -955,19 +1007,65 @@ export default function DMsPage() {
                           deliveries={message.deliveries || []}
                           attachmentsNode={
                             message.attachments?.length ? (
-                              <div className="space-y-1">
+                              <div className="space-y-1.5 my-1">
                                 {message.attachments.map((attachment) => attachment.file && (
                                   attachment.file.mimeType?.startsWith('image/') ? (
-                                    <ImageAttachment key={attachment.file.id} fileId={attachment.file.id} filename={attachment.file.filename} />
+                                    <ImageAttachment
+                                      key={attachment.file.id}
+                                      fileId={attachment.file.id}
+                                      filename={attachment.file.filename}
+                                      onDownload={() => downloadFile(attachment.file as FileItem)}
+                                    />
                                   ) : (
-                                    <button
+                                    <div
                                       key={attachment.file.id}
                                       onClick={() => downloadFile(attachment.file as FileItem)}
-                                      className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                      className={`flex items-center justify-between gap-3 rounded-xl p-2.5 text-xs transition cursor-pointer border group/file ${
+                                        own
+                                          ? 'border-blue-400/40 bg-blue-700/50 hover:bg-blue-700/70 text-white'
+                                          : 'border-slate-200 bg-slate-50/95 hover:bg-slate-100 text-slate-800'
+                                      }`}
                                     >
-                                      <FileText className="h-4 w-4" />
-                                      {attachment.file.filename}
-                                    </button>
+                                      <div className="flex items-center gap-2.5 min-w-0">
+                                        <div
+                                          className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${
+                                            own ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-600 border border-blue-100'
+                                          }`}
+                                        >
+                                          <FileText className="h-5 w-5" />
+                                        </div>
+                                        <div className="min-w-0 flex flex-col">
+                                          <span
+                                            className="font-semibold truncate max-w-[180px] sm:max-w-[240px]"
+                                            title={attachment.file.filename}
+                                          >
+                                            {attachment.file.filename}
+                                          </span>
+                                          <span className={`text-[11px] ${own ? 'text-blue-200' : 'text-slate-400'}`}>
+                                            {attachment.file.fileSizeBytes
+                                              ? formatFileSize(attachment.file.fileSizeBytes)
+                                              : 'Click to download'}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* Download button */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          downloadFile(attachment.file as FileItem);
+                                        }}
+                                        title={`Download ${attachment.file.filename}`}
+                                        className={`flex h-8 w-8 items-center justify-center rounded-lg transition shrink-0 cursor-pointer ${
+                                          own
+                                            ? 'bg-white/20 hover:bg-white/30 text-white'
+                                            : 'bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-600 border border-slate-200 shadow-xs'
+                                        }`}
+                                      >
+                                        <Download className="h-4 w-4" />
+                                      </button>
+                                    </div>
                                   )
                                 ))}
                               </div>

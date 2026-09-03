@@ -136,21 +136,34 @@ export const useChatStore = create<ChatStore>((set) => ({
     const normalizedMessage = normalizeMessage(message);
     // Append to active conversation if it matches
     const isCurrent = state.activeConversationId === normalizedMessage.conversationId;
+    const isCallMsg = [
+      'SYSTEM_CALL_START',
+      'SYSTEM_CALL_END',
+      'SYSTEM_CALL_DECLINE',
+      'CALL',
+      'CALL_MISSED',
+      'CALL_ENDED',
+      'VIDEO_CALL',
+      'AUDIO_CALL',
+    ].includes(normalizedMessage.messageType || '');
+
     const updatedMessages = isCurrent ? [...state.messages, normalizedMessage] : state.messages;
 
-    // Update lastMessage in the chat threads feed
+    // Update lastMessage in the chat threads feed (skip call messages)
     const updatedChats = state.chats.map((chat) => {
       if (chat.conversationId === normalizedMessage.conversationId) {
         return {
           ...chat,
-          unreadCount: isCurrent ? 0 : chat.unreadCount + 1,
-          lastMessage: {
-            id: normalizedMessage.id,
-            content: normalizedMessage.content || 'File Attachment',
-            senderId: normalizedMessage.senderId,
-            messageType: normalizedMessage.messageType,
-            createdAt: normalizedMessage.createdAt,
-          },
+          unreadCount: isCurrent || isCallMsg ? chat.unreadCount : chat.unreadCount + 1,
+          lastMessage: isCallMsg
+            ? chat.lastMessage
+            : {
+                id: normalizedMessage.id,
+                content: normalizedMessage.content || 'File Attachment',
+                senderId: normalizedMessage.senderId,
+                messageType: normalizedMessage.messageType,
+                createdAt: normalizedMessage.createdAt,
+              },
         };
       }
       return chat;

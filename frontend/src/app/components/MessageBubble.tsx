@@ -1,14 +1,17 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Smile,
+  SmilePlus,
+  Quote,
   Reply,
   Copy,
   Edit2,
   Trash2,
   Forward,
   Star,
+  Bookmark,
   Pin,
   MoreHorizontal,
   Check,
@@ -17,6 +20,10 @@ import {
   AlertTriangle,
   Calendar,
   Video,
+  Link,
+  ChevronRight,
+  Ban,
+  Search,
 } from 'lucide-react';
 import { initials, avatarAccent, formatDateOnly, formatDateShort } from '../(app)/_utils';
 import Portal from './Portal';
@@ -364,24 +371,77 @@ export function MessageBubble({
   const [localPinned, setLocalPinned] = useState(isPinned);
   const [localDeleted, setLocalDeleted] = useState(isDeletedGlobally);
 
+  useEffect(() => {
+    if (isDeletedGlobally) {
+      setLocalDeleted(true);
+    }
+  }, [isDeletedGlobally]);
+
+  const isDeleted =
+    localDeleted ||
+    isDeletedGlobally ||
+    content === 'This message has been deleted' ||
+    content === 'This message was deleted';
+
   const articleRef = useRef<HTMLDivElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
   const deleteRef = useRef<HTMLDivElement>(null);
   const forwardRef = useRef<HTMLDivElement>(null);
+  const forwardSearchInputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const scheduleHide = useCallback(() => {
-    hideTimerRef.current = setTimeout(() => setHovered(false), 500);
-  }, []);
+  const [openUpward, setOpenUpward] = useState(false);
+  const [copiedText, setCopiedText] = useState(false);
+  const [forwardSearch, setForwardSearch] = useState('');
 
-  const cancelHide = useCallback(() => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
+  useEffect(() => {
+    if (forwardPickerOpen) {
+      setForwardSearch('');
+      const timer = setTimeout(() => {
+        forwardSearchInputRef.current?.focus();
+      }, 60);
+      return () => clearTimeout(timer);
     }
-  }, []);
+  }, [forwardPickerOpen]);
+
+  const filteredConversations = useMemo(() => {
+    if (!forwardSearch.trim()) return availableConversations;
+    const q = forwardSearch.toLowerCase().trim();
+    return availableConversations.filter((c) => c.name.toLowerCase().includes(q));
+  }, [availableConversations, forwardSearch]);
+
+  const handleCopyText = useCallback(async () => {
+    try {
+      if (content) {
+        await navigator.clipboard.writeText(content);
+      }
+      setCopiedText(true);
+      setTimeout(() => {
+        setCopiedText(false);
+        setMoreMenuOpen(false);
+        setHovered(false);
+      }, 1200);
+    } catch {
+      // fallback
+    }
+  }, [content]);
+
+  const handleToggleMoreMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setOpenUpward(spaceBelow < 250);
+    setMoreMenuOpen((v) => !v);
+    setEmojiPickerOpen(false);
+  };
+
+  const handleToggleEmojiPicker = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setOpenUpward(spaceBelow < 250);
+    setEmojiPickerOpen((v) => !v);
+    setMoreMenuOpen(false);
+  };
 
   useClickOutside(emojiRef, () => setEmojiPickerOpen(false));
   useClickOutside(moreRef, () => setMoreMenuOpen(false));
@@ -471,6 +531,7 @@ export function MessageBubble({
   }
 
   const isDm = variant === 'dm';
+  const isLeftSideDm = isDm && !isOwn;
 
   const systemTypes: Record<string, { icon: string; color: string }> = {
     SYSTEM_JOIN:         { icon: '→',  color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
@@ -512,12 +573,66 @@ export function MessageBubble({
     );
   }
 
-  if (localDeleted) {
+  if (isDeleted) {
+    if (isDm) {
+      return (
+        <div
+          ref={articleRef}
+          className={`group relative flex gap-3 ${isOwn ? 'flex-row-reverse' : ''} my-1`}
+          data-message-id={id}
+        >
+          {(authorAvatarUrl || avatarNode) && !isOwn && (
+            <div className="shrink-0 opacity-60">
+              {authorAvatarUrl ? (
+                <img src={authorAvatarUrl} alt={author} className="h-9 w-9 rounded-full object-cover grayscale" />
+              ) : (
+                avatarNode
+              )}
+            </div>
+          )}
+
+          <div className="relative min-w-0">
+            <div
+              className={`flex items-center gap-2 rounded-2xl px-3.5 py-2 text-xs italic shadow-xs border ${
+                isOwn
+                  ? 'border-slate-300/70 bg-slate-100/80 text-slate-500 rounded-tr-sm'
+                  : 'border-slate-200 bg-white/90 text-slate-500 rounded-tl-sm'
+              }`}
+            >
+              <Ban className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <span>This message has been deleted</span>
+              <span className="text-[10px] text-slate-400 not-italic ml-1 opacity-70">{timestamp}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className={`group flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
-        {avatarNode && <div className="shrink-0">{avatarNode}</div>}
-        <div className={`italic text-slate-400 text-sm py-1 ${isOwn ? 'text-right' : ''}`}>
-          {isOwn ? 'You deleted this message' : 'This message was deleted'}
+      <div
+        ref={articleRef}
+        className="group relative flex gap-3 my-1 py-1"
+        data-message-id={id}
+      >
+        {(authorAvatarUrl || avatarNode) && (
+          <div className="shrink-0 opacity-60">
+            {authorAvatarUrl ? (
+              <img src={authorAvatarUrl} alt={author} className="h-9 w-9 rounded-full object-cover grayscale" />
+            ) : (
+              avatarNode
+            )}
+          </div>
+        )}
+
+        <div className="relative min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-xs text-slate-400 mb-0.5">
+            <span className="font-semibold text-slate-600">{author}</span>
+            <span>{timestamp}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs italic text-slate-400 py-0.5">
+            <Ban className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <span>This message has been deleted</span>
+          </div>
         </div>
       </div>
     );
@@ -550,58 +665,24 @@ export function MessageBubble({
     });
   }
 
-  const hasBubbleContent = !!finalDisplayContent || editMode || (messageType === 'POLL' && polls) || (messageType === 'TASK' && tasks && tasks.length > 0) || (isDm && !isOwn && author);
+  const hasBubbleContent =
+    !!finalDisplayContent ||
+    !!attachmentsNode ||
+    editMode ||
+    (messageType === 'POLL' && polls) ||
+    (messageType === 'TASK' && tasks && tasks.length > 0) ||
+    (isDm && !isOwn && author);
 
   const anyPopupOpen = emojiPickerOpen || moreMenuOpen || deleteConfirmOpen || forwardPickerOpen;
-
-  const mainActions = [
-    { icon: Smile, label: 'React', action: () => setEmojiPickerOpen((v) => !v), active: emojiPickerOpen },
-    { icon: Reply, label: 'Reply', action: () => { onAction?.('reply'); closeAll(); }, active: false },
-    {
-      icon: copied ? Check : Copy,
-      label: copied ? 'Copied!' : 'Copy',
-      action: handleCopy,
-      active: false,
-    },
-    {
-      icon: Forward,
-      label: 'Forward',
-      action: () => { setForwardPickerOpen((v) => !v); setMoreMenuOpen(false); },
-      active: forwardPickerOpen,
-    },
-    { icon: MoreHorizontal, label: 'More', action: () => { setMoreMenuOpen((v) => !v); setEmojiPickerOpen(false); }, active: moreMenuOpen },
-  ];
-
-  const moreMenuItems = [
-    ...(canEditMessage
-      ? [{ icon: Edit2, label: 'Edit', color: '', action: () => { setMoreMenuOpen(false); closeAll(); setEditMode(true); setEditDraft(content); } }]
-      : []),
-    {
-      icon: localStarred ? Star : Star,
-      label: localStarred ? 'Unstar message' : 'Star message',
-      color: localStarred ? 'text-amber-500' : '',
-      action: handleStar,
-    },
-    {
-      icon: Pin,
-      label: localPinned ? 'Unpin message' : 'Pin message',
-      color: localPinned ? 'text-blue-600' : '',
-      action: handlePin,
-    },
-    {
-      icon: Trash2,
-      label: 'Delete',
-      color: 'text-red-600',
-      action: () => { setMoreMenuOpen(false); setDeleteConfirmOpen(true); },
-    },
-  ];
 
   return (
     <div
       ref={articleRef}
       className={`group relative flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
-      onMouseEnter={() => { cancelHide(); setHovered(true); }}
-      onMouseLeave={() => { if (!anyPopupOpen) scheduleHide(); }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        if (!anyPopupOpen) setHovered(false);
+      }}
       data-message-id={id}
     >
       {(authorAvatarUrl || avatarNode) && (
@@ -683,6 +764,13 @@ export function MessageBubble({
               ) : null
             )}
 
+            {/* Attachments inside bubble */}
+            {attachmentsNode && !editMode && (
+              <div className={`mt-1.5 ${finalDisplayContent ? 'pt-1' : ''}`}>
+                {attachmentsNode}
+              </div>
+            )}
+
             {isDm && !editMode && (
               <div className={`mt-1 flex items-center gap-1.5 text-[10px] ${isOwn ? 'text-blue-200 justify-end' : 'text-slate-400'}`}>
                 <span>{timestamp}</span>
@@ -717,8 +805,6 @@ export function MessageBubble({
             )}
           </div>
         )}
-
-        {attachmentsNode && !editMode && <div className={`mt-2 flex ${isOwn ? 'justify-end' : 'justify-start'}`}>{attachmentsNode}</div>}
 
         {urlsInMessage.length > 0 && !editMode && (
           <div className={`mt-2 flex flex-col gap-2 ${isOwn ? 'items-end' : 'items-start'}`}>
@@ -779,283 +865,296 @@ export function MessageBubble({
             </button>
           </div>
         )}
-      </div>
 
-      {/* Floating action bar via Portal */}
-      {(hovered || anyPopupOpen) && !editMode && (
-        <Portal>
-          <FloatingBar
-            articleRef={articleRef}
-            isDm={isDm}
-            isOwn={isOwn}
-            mainActions={mainActions}
-            moreMenuItems={moreMenuItems}
-            emojiPickerOpen={emojiPickerOpen}
-            moreMenuOpen={moreMenuOpen}
-            deleteConfirmOpen={deleteConfirmOpen}
-            forwardPickerOpen={forwardPickerOpen}
-            emojiRef={emojiRef}
-            moreRef={moreRef}
-            deleteRef={deleteRef}
-            forwardRef={forwardRef}
-            handleEmojiReact={handleEmojiReact}
-            handleDeleteForMe={handleDeleteForMe}
-            handleDeleteForEveryone={handleDeleteForEveryone}
-            handleForward={handleForward}
-            availableConversations={availableConversations}
-            actionLoading={actionLoading}
-            onBarEnter={cancelHide}
-            onBarLeave={scheduleHide}
-            onCancelDelete={closeAll}
-          />
-        </Portal>
-      )}
-    </div>
-  );
-}
+        {/* Floating action bar (zero-lag inline absolute) */}
+        {(hovered || anyPopupOpen) && !editMode && (
+          <div
+            className={`absolute -top-3.5 z-30 flex items-center select-none ${
+              isLeftSideDm ? 'left-0' : 'right-0'
+            }`}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => {
+              if (!anyPopupOpen) setHovered(false);
+            }}
+          >
+          <div
+            className="message-action-bar dropdown-card flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white px-1.5 py-1 shadow-lg shadow-slate-300/40"
+            style={{ backgroundColor: '#ffffff', opacity: 1, backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+          >
+            {/* Quick Direct Reactions: 👍, ❤️, 😆, 😮 */}
+            {['👍', '❤️', '😆', '😮'].map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => handleEmojiReact(emoji)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-base transition hover:bg-slate-100 hover:scale-125 active:scale-95 cursor-pointer"
+                title={`React with ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
 
-/* ---------- Floating action bar (portal) ---------- */
-
-interface FloatingBarProps {
-  articleRef: React.RefObject<HTMLDivElement | null>;
-  isDm: boolean;
-  isOwn: boolean;
-  mainActions: Array<{ icon: React.ComponentType<{ className?: string }>; label: string; action: () => void; active: boolean }>;
-  moreMenuItems: Array<{ icon: React.ComponentType<{ className?: string }>; label: string; color: string; action: () => void }>;
-  emojiPickerOpen: boolean;
-  moreMenuOpen: boolean;
-  deleteConfirmOpen: boolean;
-  forwardPickerOpen: boolean;
-  emojiRef: React.RefObject<HTMLDivElement | null>;
-  moreRef: React.RefObject<HTMLDivElement | null>;
-  deleteRef: React.RefObject<HTMLDivElement | null>;
-  forwardRef: React.RefObject<HTMLDivElement | null>;
-  handleEmojiReact: (emoji: string) => void;
-  handleDeleteForMe: () => void;
-  handleDeleteForEveryone: () => void;
-  handleForward: (targetId: string) => void;
-  availableConversations: Array<{ id: string; name: string }>;
-  actionLoading: string | null;
-  onBarEnter: () => void;
-  onBarLeave: () => void;
-  onCancelDelete: () => void;
-}
-
-function FloatingBar({
-  articleRef,
-  isOwn,
-  mainActions,
-  moreMenuItems,
-  emojiPickerOpen,
-  moreMenuOpen,
-  deleteConfirmOpen,
-  forwardPickerOpen,
-  emojiRef,
-  moreRef,
-  deleteRef,
-  forwardRef,
-  handleEmojiReact,
-  handleDeleteForMe,
-  handleDeleteForEveryone,
-  handleForward,
-  availableConversations,
-  onBarEnter,
-  onBarLeave,
-  onCancelDelete,
-}: FloatingBarProps) {
-  const [rect, setRect] = useState<DOMRect | null>(null);
-
-  useEffect(() => {
-    if (articleRef.current) {
-      setRect(articleRef.current.getBoundingClientRect());
-    }
-  }, [articleRef]);
-
-  if (!rect) return null;
-
-  // Position toolbar at the TOP-RIGHT of the message, overlapping the top edge by 4px so there's zero gap
-  const toolbarTop = rect.top - 38;
-  const toolbarLeft = isOwn ? undefined : rect.left + 44;
-  const toolbarRight = isOwn ? window.innerWidth - rect.right : undefined;
-
-  // Sub-menus open BELOW the toolbar (downward)
-  const popupTop = rect.top + 8;
-
-  return (
-    // Single wrapper that keeps hover alive when mouse travels between message and bar
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 199, pointerEvents: 'none' }}
-    >
-      {/* Main action pill — pointer-events re-enabled with invisible padding zone to bridge mouse travel */}
-      <div
-        onMouseEnter={onBarEnter}
-        onMouseLeave={onBarLeave}
-        style={{
-          position: 'fixed',
-          top: Math.max(4, toolbarTop - 12),
-          left: toolbarLeft !== undefined ? toolbarLeft - 16 : undefined,
-          right: toolbarRight !== undefined ? toolbarRight - 16 : undefined,
-          zIndex: 200,
-          pointerEvents: 'auto',
-          padding: '12px 16px 16px 16px',
-        }}
-      >
-        <div className="flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white px-1 py-1 shadow-lg shadow-slate-200/60">
-          {mainActions.map(({ icon: Icon, label, action, active }) => (
+            {/* Add Reaction (+) */}
             <button
-              key={label}
-              onClick={action}
-              title={label}
-              className={`relative flex h-8 w-8 items-center justify-center rounded-lg transition active:scale-95 ${
-                active ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+              onClick={handleToggleEmojiPicker}
+              title="Add reaction"
+              className={`flex h-7 w-7 items-center justify-center rounded-lg transition active:scale-95 cursor-pointer ${
+                emojiPickerOpen ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
               }`}
             >
-              <Icon className="h-4 w-4" />
+              <SmilePlus className="h-4 w-4" />
             </button>
-          ))}
-        </div>
-      </div>
 
-      {/* Emoji picker popup */}
-      {emojiPickerOpen && (
-        <div
-          ref={emojiRef}
-          onMouseEnter={onBarEnter}
-          onMouseLeave={onBarLeave}
-          style={{
-            position: 'fixed',
-            top: Math.max(4, popupTop),
-            left: toolbarLeft,
-            right: toolbarRight,
-            zIndex: 201,
-            pointerEvents: 'auto',
-          }}
-          className="flex gap-1.5 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"
-        >
-          {QUICK_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => handleEmojiReact(emoji)}
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-xl transition hover:bg-slate-100 hover:scale-125 active:scale-105"
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
+            {/* Vertical Separator */}
+            <div className="mx-1 h-4 w-[1px] bg-slate-200" />
 
-      {/* More menu */}
-      {moreMenuOpen && (
-        <div
-          ref={moreRef}
-          onMouseEnter={onBarEnter}
-          onMouseLeave={onBarLeave}
-          style={{
-            position: 'fixed',
-            top: Math.max(4, popupTop),
-            left: toolbarLeft,
-            right: toolbarRight,
-            zIndex: 201,
-            pointerEvents: 'auto',
-          }}
-          className="w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
-        >
-          {moreMenuItems.map(({ icon: Icon, label, color, action }) => (
+            {/* Quote Reply button */}
             <button
-              key={label}
-              onClick={action}
-              className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition hover:bg-slate-50 ${color || 'text-slate-700'}`}
+              onClick={() => {
+                onAction?.('reply');
+                closeAll();
+              }}
+              title="Quote reply"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition active:scale-95 cursor-pointer"
             >
-              <Icon className="h-4 w-4 shrink-0" />
-              {label}
+              <Quote className="h-3.5 w-3.5" />
             </button>
-          ))}
-        </div>
-      )}
 
-      {/* Delete confirmation */}
-      {deleteConfirmOpen && (
-        <div
-          ref={deleteRef}
-          onMouseEnter={onBarEnter}
-          onMouseLeave={onBarLeave}
-          style={{
-            position: 'fixed',
-            top: Math.max(4, popupTop),
-            left: toolbarLeft,
-            right: toolbarRight,
-            zIndex: 201,
-            pointerEvents: 'auto',
-          }}
-          className="w-64 rounded-xl border border-red-200 bg-white p-4 shadow-xl"
-        >
-          <div className="flex items-center gap-2 text-red-600 font-semibold text-sm mb-3">
-            <AlertTriangle className="h-4 w-4" />
-            Delete message?
-          </div>
-          <div className="space-y-2">
-            {isOwn && (
-              <button
-                onClick={handleDeleteForEveryone}
-                className="flex w-full items-center justify-center rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 transition"
-              >
-                Delete for everyone
-              </button>
-            )}
+            {/* More options (...) */}
             <button
-              onClick={handleDeleteForMe}
-              className="flex w-full items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+              onClick={handleToggleMoreMenu}
+              title="More actions"
+              className={`flex h-7 w-7 items-center justify-center rounded-lg transition active:scale-95 cursor-pointer ${
+                moreMenuOpen ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+              }`}
             >
-              Delete for me
-            </button>
-            <button
-              onClick={onCancelDelete}
-              className="flex w-full items-center justify-center rounded-lg px-3 py-1 text-xs text-slate-400 hover:text-slate-600 transition"
-            >
-              Cancel
+              <MoreHorizontal className="h-4 w-4" />
             </button>
           </div>
-        </div>
-      )}
 
-      {/* Forward picker */}
-      {forwardPickerOpen && (
-        <div
-          ref={forwardRef}
-          onMouseEnter={onBarEnter}
-          onMouseLeave={onBarLeave}
-          style={{
-            position: 'fixed',
-            top: Math.max(4, popupTop),
-            left: toolbarLeft,
-            right: toolbarRight,
-            zIndex: 201,
-            pointerEvents: 'auto',
-          }}
-          className="w-64 rounded-xl border border-slate-200 bg-white shadow-xl"
-        >
-          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
-            Forward to...
-          </div>
-          {availableConversations.length === 0 ? (
-            <div className="px-4 py-4 text-xs text-slate-400">No conversations available</div>
-          ) : (
-            <div className="max-h-56 overflow-y-auto py-1">
-              {availableConversations.map((conv) => (
+          {/* Extended Emoji picker popup */}
+          {emojiPickerOpen && (
+            <div
+              ref={emojiRef}
+              className={`message-action-bar dropdown-card absolute z-40 flex flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xl shadow-slate-300/40 max-w-xs ${
+                isLeftSideDm ? 'left-0' : 'right-0'
+              } ${openUpward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
+              style={{ backgroundColor: '#ffffff', opacity: 1, backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+            >
+              {['👍', '❤️', '😆', '😮', '😢', '🙏', '🎉', '🔥', '👏', '🚀', '👀', '💯'].map((emoji) => (
                 <button
-                  key={conv.id}
-                  onClick={() => handleForward(conv.id)}
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
+                  key={emoji}
+                  onClick={() => {
+                    handleEmojiReact(emoji);
+                    setEmojiPickerOpen(false);
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-lg transition hover:bg-slate-100 hover:scale-125 active:scale-105 cursor-pointer"
                 >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
-                    {conv.name.charAt(0).toUpperCase()}
-                  </span>
-                  <span className="truncate">{conv.name}</span>
+                  {emoji}
                 </button>
               ))}
             </div>
           )}
+
+          {/* More menu */}
+          {moreMenuOpen && (
+            <div
+              ref={moreRef}
+              className={`message-action-bar dropdown-card absolute z-40 w-52 rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-300/40 text-[13px] text-slate-700 ${
+                isLeftSideDm ? 'left-0' : 'right-0'
+              } ${openUpward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
+              style={{ backgroundColor: '#ffffff', opacity: 1, backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+            >
+              {/* Forward */}
+              <button
+                onClick={() => {
+                  setForwardPickerOpen(true);
+                  setMoreMenuOpen(false);
+                }}
+                className="flex w-full items-center justify-between px-3.5 py-2 hover:bg-slate-50 hover:text-slate-900 text-slate-700 transition group cursor-pointer text-left"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Forward className="h-4 w-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  <span>Forward</span>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-600" />
+              </button>
+
+              {/* Copy */}
+              <button
+                onClick={handleCopyText}
+                className="flex w-full items-center justify-between px-3.5 py-2 hover:bg-slate-50 hover:text-slate-900 text-slate-700 transition group cursor-pointer text-left"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Copy className="h-4 w-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  <span>{copiedText ? 'Copied!' : 'Copy'}</span>
+                </div>
+                {copiedText && <Check className="h-3.5 w-3.5 text-emerald-500" />}
+              </button>
+
+              {/* Pin for everyone */}
+              <button
+                onClick={handlePin}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 hover:text-slate-900 text-slate-700 transition group cursor-pointer text-left"
+              >
+                <Pin
+                  className={`h-4 w-4 shrink-0 ${
+                    localPinned ? 'text-blue-500 fill-blue-500' : 'text-slate-400 group-hover:text-slate-600'
+                  }`}
+                />
+                <span>{localPinned ? 'Unpin message' : 'Pin for everyone'}</span>
+              </button>
+
+              {/* Edit message (if eligible) */}
+              {canEditMessage && (
+                <button
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    closeAll();
+                    setEditMode(true);
+                    setEditDraft(content);
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 hover:text-slate-900 text-slate-700 transition group cursor-pointer text-left"
+                >
+                  <Edit2 className="h-4 w-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  <span>Edit message</span>
+                </button>
+              )}
+
+              {/* Delete message */}
+              <button
+                onClick={() => {
+                  setMoreMenuOpen(false);
+                  setDeleteConfirmOpen(true);
+                }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 hover:bg-rose-50 text-rose-600 transition group cursor-pointer text-left"
+              >
+                <Trash2 className="h-4 w-4 text-rose-500 shrink-0" />
+                <span>Delete</span>
+              </button>
+            </div>
+          )}
         </div>
+      )}
+      </div>
+
+      {/* Delete confirmation modal via Portal */}
+      {deleteConfirmOpen && (
+        <Portal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+            <div
+              ref={deleteRef}
+              className="w-full max-w-xs rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl text-slate-900"
+            >
+              <div className="flex items-center gap-2 text-rose-600 font-semibold text-sm mb-2">
+                <AlertTriangle className="h-4 w-4" />
+                Delete message?
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                This will delete the message for participants in this chat.
+              </p>
+              <div className="space-y-2">
+                {isOwn && (
+                  <button
+                    onClick={handleDeleteForEveryone}
+                    className="flex w-full items-center justify-center rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700 shadow-xs transition cursor-pointer"
+                  >
+                    Delete for everyone
+                  </button>
+                )}
+                <button
+                  onClick={handleDeleteForMe}
+                  className="flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Delete for me
+                </button>
+                <button
+                  onClick={closeAll}
+                  className="flex w-full items-center justify-center rounded-xl px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* Forward picker modal via Portal */}
+      {forwardPickerOpen && (
+        <Portal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+            <div
+              ref={forwardRef}
+              className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white shadow-2xl text-slate-900 overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
+                <span>Forward to...</span>
+                <button
+                  type="button"
+                  onClick={closeAll}
+                  className="text-slate-400 hover:text-slate-600 text-xs px-2 py-1 rounded-lg hover:bg-slate-100 cursor-pointer transition"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="p-3 border-b border-slate-100">
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <input
+                    ref={forwardSearchInputRef}
+                    type="text"
+                    value={forwardSearch}
+                    onChange={(e) => setForwardSearch(e.target.value)}
+                    placeholder="Search people or channels..."
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-8 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                  {forwardSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForwardSearch('');
+                        forwardSearchInputRef.current?.focus();
+                      }}
+                      className="absolute right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300 text-[10px] cursor-pointer"
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Conversations List */}
+              <div className="flex-1 overflow-y-auto py-1">
+                {availableConversations.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-xs text-slate-400">
+                    No conversations available
+                  </div>
+                ) : filteredConversations.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-xs text-slate-400">
+                    No results found for &ldquo;{forwardSearch}&rdquo;
+                  </div>
+                ) : (
+                  filteredConversations.map((conv) => (
+                    <button
+                      key={conv.id}
+                      onClick={() => handleForward(conv.id)}
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-slate-800 transition hover:bg-slate-50 cursor-pointer text-left"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 border border-blue-200 text-xs font-bold text-blue-700">
+                        {conv.name.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="truncate font-medium flex-1">{conv.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </Portal>
       )}
     </div>
   );
