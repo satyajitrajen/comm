@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import type { IncomingMessage } from 'http';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { v2 as cloudinary } from 'cloudinary';
 import * as https from 'https';
 import {
@@ -67,7 +68,10 @@ function formatStorageError(err: unknown): string {
 export class FilesService {
   private readonly logger = new Logger(FilesService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private realtimeGateway: RealtimeGateway,
+  ) {}
 
   private uploadRoot() {
     return join(process.cwd(), 'uploads');
@@ -375,6 +379,7 @@ export class FilesService {
         },
       });
 
+      let createdMessageId: string | null = null;
       if (conversationId) {
         const message = await tx.message.create({
           data: {
@@ -384,6 +389,7 @@ export class FilesService {
             messageType: 'FILE',
           },
         });
+        createdMessageId = message.id;
 
         await tx.messageAttachment.create({
           data: {
@@ -393,10 +399,29 @@ export class FilesService {
         });
       }
 
-      return storedFile;
+      return { storedFile, createdMessageId };
     });
 
-    return this.serializeFile(createdFile);
+    if (conversationId && createdFile.createdMessageId) {
+      const fullMessage = await this.prisma.message.findUnique({
+        where: { id: createdFile.createdMessageId },
+        include: {
+          sender: { include: { profile: true } },
+          attachments: { include: { file: true } },
+        },
+      });
+      if (fullMessage) {
+        const room = `conversation:${conversationId}`;
+        this.realtimeGateway.broadcastToRoom(room, 'message.sent', fullMessage);
+        void this.realtimeGateway.emitMessageNotifyToParticipants(
+          conversationId,
+          userId,
+          fullMessage,
+        );
+      }
+    }
+
+    return this.serializeFile(createdFile.storedFile);
   }
 
   /** Opens an HTTPS stream for a remotely stored (Cloudinary) file object. */

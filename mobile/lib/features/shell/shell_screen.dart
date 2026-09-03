@@ -5,7 +5,6 @@ import '../../core/auth_notifier.dart';
 import '../../core/permissions.dart';
 import '../../core/socket_client.dart';
 import '../../widgets/common.dart';
-import '../calls/call_controller.dart';
 import '../activity/activity_screen.dart';
 import '../calls/calls_screen.dart';
 import '../chat/chat_lists.dart';
@@ -22,12 +21,11 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
-    final call = ref.watch(callControllerProvider);
     final socketStatus = ref.watch(socketStatusProvider);
     final pages = <({int i, String key, String label, IconData icon, Widget page})>[
       (i: 0, key: 'home', label: 'Home', icon: Icons.home_outlined, page: const HomeScreen()),
       (i: 1, key: 'teams', label: 'Teams', icon: Icons.groups_outlined, page: const TeamsListScreen()),
-      (i: 2, key: 'dms', label: 'Chat', icon: Icons.chat_bubble_outline, page: const DmsListScreen()),
+      (i: 2, key: 'dms', label: 'Chats', icon: Icons.chat_bubble_outline_rounded, page: const DmsListScreen()),
       (i: 3, key: 'calls', label: 'Calls', icon: Icons.call_outlined, page: const CallsScreen()),
       (i: 4, key: 'activity', label: 'Activity', icon: Icons.notifications_outlined, page: const ActivityScreen()),
     ].where((e) => navKeyAllowed(e.key, user)).toList();
@@ -61,24 +59,6 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
                 ),
               ),
             ),
-          if (call.incoming != null)
-            IncomingCallOverlay(call: call.incoming!),
-          if (call.outgoingName != null && !call.inCall)
-            Align(
-              alignment: Alignment.topCenter,
-              child: Material(
-                color: const Color(0xFF0F172A),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      'Calling ${call.outgoingName}…',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -90,8 +70,12 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _more(user),
-        label: const Text('More'),
-        icon: const Icon(Icons.more_horiz),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 3,
+        shape: const StadiumBorder(),
+        label: const Text('More', style: TextStyle(fontWeight: FontWeight.w600)),
+        icon: const Icon(Icons.more_horiz_rounded),
       ),
     );
   }
@@ -99,85 +83,58 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   void _more(Map<String, dynamic>? user) {
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (navKeyAllowed('files', user))
-              ListTile(
-                leading: const Icon(Icons.folder_outlined),
-                title: const Text('Files'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  context.push('/files');
-                },
-              ),
-            if (navKeyAllowed('people', user))
-              ListTile(
-                leading: const Icon(Icons.people_outline),
-                title: const Text('People'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  context.push('/people');
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.calendar_month_outlined),
-              title: const Text('Calendar & Events'),
-              onTap: () {
-                Navigator.pop(ctx);
-                context.push('/events');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings_outlined),
-              title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(ctx);
-                context.push('/settings');
-              },
-            ),
-          ],
-        ),
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-    );
-  }
-}
-
-class IncomingCallOverlay extends ConsumerWidget {
-  const IncomingCallOverlay({super.key, required this.call});
-  final IncomingCall call;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Material(
-      color: const Color(0xF00F172A),
-      child: SafeArea(
-        child: Center(
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.videocam, color: Colors.white, size: 48),
-              const SizedBox(height: 12),
-              Text('Incoming call from ${call.callerName}',
-                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
-              Text(call.conversationName, style: const TextStyle(color: Colors.white70)),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  FilledButton(
-                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
-                    onPressed: () => ref.read(callControllerProvider.notifier).accept(),
-                    child: const Text('Accept'),
-                  ),
-                  const SizedBox(width: 16),
-                  FilledButton(
-                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE11D48)),
-                    onPressed: () => ref.read(callControllerProvider.notifier).decline(),
-                    child: const Text('Decline'),
-                  ),
-                ],
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              if (navKeyAllowed('files', user))
+                ListTile(
+                  leading: const Icon(Icons.folder_outlined, color: Color(0xFF0284C7)),
+                  title: const Text('Files', style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    context.push('/files');
+                  },
+                ),
+              if (navKeyAllowed('people', user))
+                ListTile(
+                  leading: const Icon(Icons.people_outline, color: Color(0xFF0284C7)),
+                  title: const Text('People', style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    context.push('/people');
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.calendar_month_outlined, color: Color(0xFF0284C7)),
+                title: const Text('Calendar & Events', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.push('/events');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings_outlined, color: Color(0xFF0284C7)),
+                title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.push('/settings');
+                },
               ),
             ],
           ),
@@ -186,3 +143,4 @@ class IncomingCallOverlay extends ConsumerWidget {
     );
   }
 }
+

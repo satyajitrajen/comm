@@ -154,7 +154,12 @@ export class PushService {
 
   async sendToUsers(
     userIds: string[],
-    payload: { title: string; body: string; url?: string },
+    payload: {
+      title: string;
+      body: string;
+      url?: string;
+      data?: Record<string, string>;
+    },
   ): Promise<void> {
     if (userIds.length === 0) return;
     if (!this.vapidEnabled && !this.fcm) return;
@@ -166,6 +171,7 @@ export class PushService {
     if (devices.length === 0) return;
 
     const vapidBody = JSON.stringify(payload);
+    const extraData = payload.data || {};
     const dead: string[] = [];
 
     await Promise.all(
@@ -186,11 +192,23 @@ export class PushService {
             device.deviceType === 'ANDROID' || device.deviceType === 'IOS';
           await this.fcm.send({
             token: device.pushToken,
-            data: { title: payload.title, body: payload.body, url },
+            data: {
+              title: payload.title,
+              body: payload.body,
+              url,
+              ...extraData,
+            },
             ...(isNative
               ? {
                   notification: { title: payload.title, body: payload.body },
-                  android: { priority: 'high' as const },
+                  android: {
+                    priority: 'high' as const,
+                    notification: {
+                      channelId: 'teamtime_push',
+                      sound: 'default',
+                      priority: 'max' as const,
+                    },
+                  },
                 }
               : {
                   webpush: {

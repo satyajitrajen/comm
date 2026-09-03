@@ -43,6 +43,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
           final items = snap.data ?? [];
           if (items.isEmpty) return const EmptyState(message: 'No call history yet. Start one from a chat.');
           return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             itemCount: items.length,
             itemBuilder: (context, i) {
               final m = items[i];
@@ -50,23 +51,41 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                   m['sender']?['profile']?['displayName'] as String? ??
                   'Call';
               final cid = m['conversationId'] as String?;
-              return ListTile(
-                leading: const Icon(Icons.call),
-                title: Text(name),
-                subtitle: Text('${m['content'] ?? m['messageType'] ?? ''} · ${m['createdAt'] ?? ''}'),
-                trailing: cid == null
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.videocam),
-                        onPressed: () => ref.read(callControllerProvider.notifier).invite(
-                              conversationId: cid,
-                              conversationName: name,
-                              conversationType: '${m['conversation']?['type'] ?? 'GROUP'}',
-                            ),
-                      ),
-                onTap: cid == null
-                    ? null
-                    : () => context.push('/chat/$cid?title=${Uri.encodeComponent(name)}&type=${m['conversation']?['type'] ?? 'GROUP'}'),
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2)),
+                  ],
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  leading: CircleAvatar(
+                    backgroundColor: const Color(0xFFDCFCE7),
+                    foregroundColor: const Color(0xFF16A34A),
+                    child: const Icon(Icons.call_rounded, size: 20),
+                  ),
+                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    '${m['content'] ?? m['messageType'] ?? ''} · ${m['createdAt'] ?? ''}',
+                    style: const TextStyle(color: Color(0xFF64748B)),
+                  ),
+                  trailing: cid == null
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.videocam_rounded, color: Color(0xFF0284C7)),
+                          onPressed: () => ref.read(callControllerProvider.notifier).invite(
+                                conversationId: cid,
+                                conversationName: name,
+                                conversationType: '${m['conversation']?['type'] ?? 'GROUP'}',
+                              ),
+                        ),
+                  onTap: cid == null
+                      ? null
+                      : () => context.push('/chat/$cid?title=${Uri.encodeComponent(name)}&type=${m['conversation']?['type'] ?? 'GROUP'}'),
+                ),
               );
             },
           );

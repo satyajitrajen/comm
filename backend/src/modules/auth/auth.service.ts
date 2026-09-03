@@ -43,7 +43,7 @@ export class AuthService {
   ) {}
 
   private accessTokenExpiresIn(): string {
-    return process.env.ACCESS_TOKEN_EXPIRES_IN?.trim() || '30m';
+    return process.env.ACCESS_TOKEN_EXPIRES_IN?.trim() || '365d';
   }
 
   async register(body: {
@@ -455,6 +455,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(
       {
         sub: user.id,
+        sessionId: session.id,
         email: user.email,
         phoneNumber: user.phoneNumber,
       },
@@ -494,17 +495,6 @@ export class AuthService {
     ipAddress: string,
     userAgent: string,
   ) {
-    const accessToken = this.jwtService.sign(
-      {
-        sub: user.id,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-      },
-      {
-        expiresIn: this.accessTokenExpiresIn() as JwtSignOptions['expiresIn'],
-      },
-    );
-
     const refreshToken = randomUUID();
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
 
@@ -516,6 +506,18 @@ export class AuthService {
         userAgent,
       },
     });
+
+    const accessToken = this.jwtService.sign(
+      {
+        sub: user.id,
+        sessionId: session.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+      },
+      {
+        expiresIn: this.accessTokenExpiresIn() as JwtSignOptions['expiresIn'],
+      },
+    );
 
     const workspaceUser = await this.prisma.workspaceUser.findFirst({
       where: { userId: user.id, isActive: true },

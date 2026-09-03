@@ -97,12 +97,26 @@ export class RealtimeGateway
       const verified: unknown = await this.jwtService.verifyAsync(token, {
         secret: getJwtSecret(),
       });
-      const payload = verified as { sub?: string };
+      const payload = verified as { sub?: string; sessionId?: string };
 
       const userId = payload.sub;
       if (!userId) {
         client.disconnect();
         return;
+      }
+
+      if (payload.sessionId) {
+        const session = await this.prisma.loginSession.findUnique({
+          where: { id: payload.sessionId },
+          select: { isRevoked: true },
+        });
+        if (!session || session.isRevoked) {
+          this.logger.warn(
+            `[WS CONNECTION REJECTED] Session ${payload.sessionId} has been logged out`,
+          );
+          client.disconnect();
+          return;
+        }
       }
       client.data.userId = userId;
       const cameOnline = this.presence.connect(userId, client.id);
@@ -653,6 +667,11 @@ export class RealtimeGateway
       ringIds.push(pid);
     }
 
+    // Also emit to the conversation room so any client currently viewing the chat rings immediately
+    this.server
+      .to(`conversation:${data.conversationId}`)
+      .emit('call.incoming', payload);
+
     // FCM/VAPID for backgrounded phones and closed browser tabs. Socket
     // already covers live clients; extra push is how Flutter rings.
     if (ringIds.length > 0) {
@@ -661,6 +680,13 @@ export class RealtimeGateway
         title: 'Incoming call',
         body: `${data.callerName} is calling${where}`,
         url: `/calls?conversation=${data.conversationId}`,
+        data: {
+          type: 'CALL_INVITE',
+          callerName: data.callerName,
+          conversationName: data.conversationName || '',
+          conversationId: data.conversationId,
+          roomName: call.roomName,
+        },
       });
     }
 

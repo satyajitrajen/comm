@@ -10,6 +10,7 @@ import '../features/files/files_screen.dart';
 import '../features/people/people_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/shell/shell_screen.dart';
+import '../features/splash/splash_screen.dart';
 
 String? _moduleKeyFor(String location) {
   if (location.startsWith('/teams')) return 'teams';
@@ -25,12 +26,17 @@ final routerProvider = Provider<GoRouter>((ref) {
   ref.listen(authProvider, (_, _) => refresh.value++);
 
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/splash',
     refreshListenable: refresh,
     redirect: (context, state) {
       final auth = ref.read(authProvider);
-      if (auth.booting) return null;
       final loc = state.matchedLocation;
+      if (auth.booting) {
+        return loc == '/splash' ? null : '/splash';
+      }
+      if (loc == '/splash') {
+        return auth.isLoggedIn ? '/home' : '/login';
+      }
       final loggingIn = loc.startsWith('/login') ||
           loc == '/forgot-password' ||
           loc == '/reset-password';
@@ -43,6 +49,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(
         path: '/login/2fa',

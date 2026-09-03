@@ -1,7 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:app/core/config.dart';
 import 'package:app/core/permissions.dart';
 import 'package:app/core/push_routes.dart';
+import 'package:app/features/splash/splash_screen.dart';
 
 void main() {
   test('call room names match web', () {
@@ -30,5 +32,15 @@ void main() {
     expect(routeFromPushUrl('/calls?conversation=c1'), '/calls');
     expect(routeFromPushUrl('/activity'), '/activity');
     expect(routeFromPushUrl(null), '/home');
+  });
+
+  testWidgets('SplashScreen displays brand title and tagline', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: SplashScreen(),
+      ),
+    );
+    expect(find.text('TeamTime'), findsOneWidget);
+    expect(find.text('Connect. Collaborate. Communicate.'), findsOneWidget);
   });
 }

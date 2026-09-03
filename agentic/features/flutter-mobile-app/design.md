@@ -93,25 +93,29 @@ Use a geometric sans close to web Poppins (e.g. `google_fonts` Poppins).
 
 ### Radii
 
-Cards 16, buttons 12, avatars full, composer 24.
+Cards 18–20, buttons stadium (full pill), squircle badges 20–22, composer 28, text fields 20.
 
 ### Shadows
 
-Single soft card elevation (Material 3 `surfaceContainerLow`). No stacked neon glows from web shell.
+Single soft card elevation (`Color(0x0A000000)` blur 8–10). White pill buttons have soft drop shadow (`Color(0x1A000000)` blur 12–14, offset (0, 4)).
 
 ### Icons
 
-Material Symbols / Lucide-equivalent via `lucide_icons` or Material. Nav matches web meaning, not pixel-identical.
+Material Symbols rounded. Clean 20–24dp iconography inside squircles and inputs.
 
 ### Components and variants
 
-- `TtButton` primary/secondary/destructive
-- `TtTextField` + password variant
-- `Avatar` initials + image
-- `MessageBubble` own/other, with attachment/poll/task
-- `ChatComposer`
-- `IncomingCallScaffold`
-- `EmptyState` + `ErrorBanner`
+- `TtButton`:
+  - `primary`: white pill (`StadiumBorder`), dark slate text (`#0F172A`), soft drop shadow
+  - `secondary` / `glass`: translucent pill (`Color(0x2EFFFFFF)`), 1.2px white border, white text
+  - `filled`: electric blue pill (`#0284C7`), white text
+  - `destructive`: crimson pill (`#E11D48`), white text
+- `TtSquircleBadge`: white squircle container (radius 20–22) with soft drop shadow
+- `TtGlassCard`: translucent frosted card (radius 20) with subtle stroke
+- `TtAvatar`: initials + network image with squircle / circle options
+- `ChatComposer`: floating capsule bar with circular action triggers
+- `IncomingCallOverlay`: full-screen call banner with stadium action buttons
+- `EmptyState`: squircle inbox badge + stadium retry button
 
 ### Interactive states
 

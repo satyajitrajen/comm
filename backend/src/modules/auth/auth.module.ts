@@ -9,7 +9,9 @@ import { getJwtSecret } from '../../config/jwt';
     JwtModule.register({
       secret: getJwtSecret(),
       signOptions: {
-        expiresIn: '30m',
+        expiresIn:
+          (process.env.ACCESS_TOKEN_EXPIRES_IN?.trim() ||
+            '365d') as `${number}${'s' | 'm' | 'h' | 'd' | 'w' | 'y'}`,
       },
     }),
   ],

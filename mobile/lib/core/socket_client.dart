@@ -28,7 +28,7 @@ class TeamTimeSocket {
     if (_disposed) return () {};
     _binders.add(binder);
     final socket = _socket;
-    if (socket != null && socket.connected) {
+    if (socket != null) {
       binder(socket);
     }
     return () {
@@ -61,7 +61,7 @@ class TeamTimeSocket {
           .setReconnectionAttempts(double.infinity)
           .setReconnectionDelay(1000)
           .setReconnectionDelayMax(10000)
-          .setAuthFn(_resolveAuth)
+          .setAuth({'token': token})
           .build(),
     );
     _socket = socket;
@@ -75,8 +75,27 @@ class TeamTimeSocket {
       }
     });
 
-    socket.on('disconnect', (_) => _setStatus(SocketStatus.disconnected));
-    socket.io.on('reconnect_attempt', (_) => _setStatus(SocketStatus.reconnecting));
+    socket.on('connect_error', (_) {
+      _setStatus(SocketStatus.reconnecting);
+    });
+
+    socket.on('disconnect', (reason) {
+      _setStatus(SocketStatus.disconnected);
+      if (reason == 'io server disconnect' && !_disposed) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (!_disposed) connect();
+        });
+      }
+    });
+
+    socket.io.on('reconnect_attempt', (_) async {
+      _setStatus(SocketStatus.reconnecting);
+      final freshToken = await tokenProvider();
+      if (freshToken != null && _socket == socket) {
+        socket.auth = {'token': freshToken};
+      }
+    });
+
     socket.io.on('reconnect', (_) {
       _setStatus(SocketStatus.connected);
       for (final binder in List.of(_binders)) {
@@ -88,16 +107,6 @@ class TeamTimeSocket {
 
     socket.connect();
     return socket;
-  }
-
-  void _resolveAuth(void Function(Map auth) ack) {
-    unawaited(() async {
-      String? token;
-      try {
-        token = await tokenProvider();
-      } catch (_) {}
-      ack({'token': token ?? ''});
-    }());
   }
 
   void _setStatus(SocketStatus status) {
@@ -137,14 +146,16 @@ final socketClientProvider = Provider<TeamTimeSocket>((ref) {
     baseUrl: api.baseUrl,
     tokenProvider: () => session.accessToken,
     onStatus: (status) {
-      ref.read(socketStatusProvider.notifier).state = status;
+      Future.microtask(() {
+        ref.read(socketStatusProvider.notifier).state = status;
+      });
     },
   );
 
   ref.onDispose(socket.dispose);
 
   if (isLoggedIn) {
-    unawaited(socket.connect());
+    Future.microtask(() => socket.connect());
   }
 
   return socket;

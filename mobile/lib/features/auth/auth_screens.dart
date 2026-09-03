@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/auth_notifier.dart';
 import '../../widgets/common.dart';
+import '../../widgets/design_system.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -14,6 +15,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _id = TextEditingController();
   final _password = TextEditingController();
   bool _busy = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -49,42 +51,114 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
-            const SizedBox(height: 48),
-            const Text('TeamTime', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            const Text('Sign in to your workspace', style: TextStyle(fontSize: 16, color: Color(0xFF64748B))),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TtSquircleBadge(
+                size: 60,
+                radius: 20,
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF38BDF8), Color(0xFF0284C7)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.hub_rounded, color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            const Text(
+              'Your workspace,\nupgraded',
+              style: TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+                height: 1.15,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Collaborate, chat, and meet with stable real-time connectivity.',
+              style: TextStyle(
+                fontSize: 15,
+                color: Color(0xFF334155),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 36),
             TextField(
               controller: _id,
               keyboardType: TextInputType.emailAddress,
               autofillHints: const [AutofillHints.username],
-              decoration: const InputDecoration(labelText: 'Email or phone'),
+              style: const TextStyle(color: Color(0xFF0F172A), fontSize: 16),
+              decoration: const InputDecoration(
+                labelText: 'Email or phone',
+                labelStyle: TextStyle(color: Color(0xFF475569)),
+                prefixIcon: Icon(Icons.person_outline_rounded, color: Color(0xFF64748B)),
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             TextField(
               controller: _password,
-              obscureText: true,
+              obscureText: _obscurePassword,
               autofillHints: const [AutofillHints.password],
-              decoration: const InputDecoration(labelText: 'Password'),
+              style: const TextStyle(color: Color(0xFF0F172A), fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Password',
+                labelStyle: const TextStyle(color: Color(0xFF475569)),
+                prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF64748B)),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                    color: const Color(0xFF64748B),
+                  ),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                ),
+              ),
               onSubmitted: (_) => _submit(),
             ),
             if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: Color(0xFFE11D48))),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFF87171)),
+                ),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Color(0xFF991B1B), fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: _busy ? null : _submit,
-              child: Text(_busy ? 'Signing in…' : 'Sign in'),
+            const SizedBox(height: 28),
+            TtButton.primary(
+              text: 'Sign in',
+              icon: Icons.login_rounded,
+              busy: _busy,
+              onPressed: _submit,
             ),
-            TextButton(
+            const SizedBox(height: 14),
+            TtButton.secondary(
+              text: 'Forgot password',
+              icon: Icons.help_outline_rounded,
               onPressed: () => context.push('/forgot-password'),
-              child: const Text('Forgot password'),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -131,22 +205,83 @@ class _TwoFactorScreenState extends ConsumerState<TwoFactorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Two-factor')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Two-factor', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700)),
+        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
-            Text('Enter the code sent to ${widget.verifyKey}'),
             const SizedBox(height: 16),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: TtSquircleBadge(
+                size: 60,
+                radius: 20,
+                child: Icon(Icons.security_rounded, color: Color(0xFF0284C7), size: 28),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Verify your\nidentity',
+              style: TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+                height: 1.15,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Enter the 6-digit security code sent to ${widget.verifyKey}.',
+              style: const TextStyle(
+                fontSize: 15,
+                color: Color(0xFF334155),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 32),
             TextField(
               controller: _otp,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'One-time code'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 22,
+                letterSpacing: 4,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+              decoration: const InputDecoration(
+                hintText: '• • • • • •',
+                hintStyle: TextStyle(letterSpacing: 4, color: Color(0xFF94A3B8)),
+              ),
+              onSubmitted: (_) => _submit(),
             ),
-            if (_error != null) Text(_error!, style: const TextStyle(color: Color(0xFFE11D48))),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: _busy ? null : _submit, child: const Text('Verify')),
+            if (_error != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFF87171)),
+                ),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Color(0xFF991B1B), fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+            const SizedBox(height: 28),
+            TtButton.primary(
+              text: 'Verify and Continue',
+              icon: Icons.check_circle_outline_rounded,
+              busy: _busy,
+              onPressed: _submit,
+            ),
           ],
         ),
       ),
@@ -190,23 +325,98 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Forgot password')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Recovery', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700)),
+        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
+            const SizedBox(height: 16),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: TtSquircleBadge(
+                size: 60,
+                radius: 20,
+                child: Icon(Icons.lock_reset_rounded, color: Color(0xFF0284C7), size: 28),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Reset your\npassword',
+              style: TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+                height: 1.15,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Enter your registered email and we will send you instructions to recover your account.',
+              style: TextStyle(
+                fontSize: 15,
+                color: Color(0xFF334155),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 32),
             TextField(
               controller: _email,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email'),
+              style: const TextStyle(color: Color(0xFF0F172A), fontSize: 16),
+              decoration: const InputDecoration(
+                labelText: 'Account email',
+                labelStyle: TextStyle(color: Color(0xFF475569)),
+                prefixIcon: Icon(Icons.email_outlined, color: Color(0xFF64748B)),
+              ),
+              onSubmitted: (_) => _submit(),
             ),
-            if (_error != null) Text(_error!, style: const TextStyle(color: Color(0xFFE11D48))),
-            if (_done != null) Text(_done!),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: _busy ? null : _submit, child: const Text('Send reset email')),
-            TextButton(
+            if (_error != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFF87171)),
+                ),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Color(0xFF991B1B), fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+            if (_done != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF34D399)),
+                ),
+                child: Text(
+                  _done!,
+                  style: const TextStyle(color: Color(0xFF065F46), fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+            const SizedBox(height: 28),
+            TtButton.primary(
+              text: 'Send reset email',
+              icon: Icons.send_rounded,
+              busy: _busy,
+              onPressed: _submit,
+            ),
+            const SizedBox(height: 14),
+            TtButton.secondary(
+              text: 'I already have a token',
+              icon: Icons.key_rounded,
               onPressed: () => context.push('/reset-password'),
-              child: const Text('I already have a token'),
             ),
           ],
         ),
@@ -225,6 +435,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   final _token = TextEditingController();
   final _password = TextEditingController();
   bool _busy = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -255,21 +466,102 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Reset password')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Update password', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700)),
+        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
-            TextField(controller: _token, decoration: const InputDecoration(labelText: 'Reset token')),
+            const SizedBox(height: 16),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: TtSquircleBadge(
+                size: 60,
+                radius: 20,
+                child: Icon(Icons.vpn_key_rounded, color: Color(0xFF0284C7), size: 28),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Set new\npassword',
+              style: TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+                height: 1.15,
+                letterSpacing: -0.5,
+              ),
+            ),
             const SizedBox(height: 12),
+            const Text(
+              'Paste your reset token and enter your new password.',
+              style: TextStyle(
+                fontSize: 15,
+                color: Color(0xFF334155),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 32),
+            TextField(
+              controller: _token,
+              style: const TextStyle(color: Color(0xFF0F172A), fontSize: 16),
+              decoration: const InputDecoration(
+                labelText: 'Reset token',
+                labelStyle: TextStyle(color: Color(0xFF475569)),
+                prefixIcon: Icon(Icons.key_outlined, color: Color(0xFF64748B)),
+              ),
+            ),
+            const SizedBox(height: 14),
             TextField(
               controller: _password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'New password (min 8)'),
+              obscureText: _obscurePassword,
+              style: const TextStyle(color: Color(0xFF0F172A), fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'New password (min 8)',
+                labelStyle: const TextStyle(color: Color(0xFF475569)),
+                prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF64748B)),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                    color: const Color(0xFF64748B),
+                  ),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                ),
+              ),
+              onSubmitted: (_) => _submit(),
             ),
-            if (_error != null) Text(_error!, style: const TextStyle(color: Color(0xFFE11D48))),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: _busy ? null : _submit, child: const Text('Update password')),
+            if (_error != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFF87171)),
+                ),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Color(0xFF991B1B), fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+            const SizedBox(height: 28),
+            TtButton.primary(
+              text: 'Save new password',
+              icon: Icons.check_rounded,
+              busy: _busy,
+              onPressed: _submit,
+            ),
+            const SizedBox(height: 14),
+            TtButton.secondary(
+              text: 'Back to sign in',
+              icon: Icons.arrow_back_rounded,
+              onPressed: () => context.go('/login'),
+            ),
           ],
         ),
       ),

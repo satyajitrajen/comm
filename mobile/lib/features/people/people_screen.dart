@@ -41,9 +41,12 @@ class _PeopleScreenState extends ConsumerState<PeopleScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: TextField(
-              decoration: const InputDecoration(hintText: 'Search'),
+              decoration: const InputDecoration(
+                hintText: 'Search people…',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
               onChanged: (v) => setState(() => _q = v.toLowerCase()),
             ),
           ),
@@ -65,16 +68,28 @@ class _PeopleScreenState extends ConsumerState<PeopleScreen> {
                 }).toList();
                 if (items.isEmpty) return const EmptyState(message: 'No people found');
                 return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   itemCount: items.length,
                   itemBuilder: (context, i) {
                     final u = items[i];
                     final name = u['displayName'] as String? ?? u['profile']?['displayName'] as String? ?? 'User';
-                    return ListTile(
-                      leading: TtAvatar(name: name, url: u['avatarUrl'] as String? ?? u['profile']?['avatarUrl'] as String?),
-                      title: Text(name),
-                      subtitle: Text('${u['email'] ?? u['department'] ?? ''}'),
-                      trailing: const Icon(Icons.chat_bubble_outline),
-                      onTap: () => _dm('${u['id']}', name),
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2)),
+                        ],
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        leading: TtAvatar(name: name, url: u['avatarUrl'] as String? ?? u['profile']?['avatarUrl'] as String?),
+                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: Text('${u['email'] ?? u['department'] ?? ''}', style: const TextStyle(color: Color(0xFF64748B))),
+                        trailing: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF0284C7)),
+                        onTap: () => _dm('${u['id']}', name),
+                      ),
                     );
                   },
                 );

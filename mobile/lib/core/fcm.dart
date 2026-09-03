@@ -8,6 +8,34 @@ import 'push_routes.dart';
 const _pushChannelId = 'teamtime_push';
 final _localNotifications = FlutterLocalNotificationsPlugin();
 
+Future<void> initLocalNotifications() async {
+  try {
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const settings = InitializationSettings(android: androidSettings);
+    await _localNotifications.initialize(
+      settings: settings,
+      onDidReceiveNotificationResponse: (response) {
+        if (response.actionId == 'decline_call') {
+          cancelIncomingCallNotification();
+          return;
+        }
+        if (response.payload != null && response.payload!.isNotEmpty) {
+          final route = routeFromPushUrl(response.payload);
+          final go = _go;
+          if (go != null) {
+            go(route);
+          } else {
+            _pendingPushRoute = route;
+          }
+        }
+      },
+    );
+  } catch (e) {
+    debugPrint('initLocalNotifications error: $e');
+  }
+  await _ensureAndroidPushChannel();
+}
+
 Future<void> _ensureAndroidPushChannel() async {
   try {
     final android = _localNotifications
@@ -17,12 +45,63 @@ Future<void> _ensureAndroidPushChannel() async {
         _pushChannelId,
         'TeamTime push',
         description: 'Calls, messages and workspace alerts',
-        importance: Importance.high,
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
       ),
     );
   } catch (e) {
     debugPrint('Notification channel skipped: $e');
   }
+}
+
+Future<void> showIncomingCallNotification({
+  required String callerName,
+  required String conversationName,
+  required String conversationId,
+}) async {
+  try {
+    const androidDetails = AndroidNotificationDetails(
+      _pushChannelId,
+      'TeamTime push',
+      channelDescription: 'Calls, messages and workspace alerts',
+      importance: Importance.max,
+      priority: Priority.high,
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.call,
+      visibility: NotificationVisibility.public,
+      playSound: true,
+      enableVibration: true,
+      actions: [
+        AndroidNotificationAction(
+          'decline_call',
+          'Decline',
+          showsUserInterface: false,
+          cancelNotification: true,
+        ),
+        AndroidNotificationAction(
+          'accept_call',
+          'Accept',
+          showsUserInterface: true,
+        ),
+      ],
+    );
+    await _localNotifications.show(
+      id: 8888,
+      title: 'Incoming Call',
+      body: '$callerName is calling in $conversationName',
+      notificationDetails: const NotificationDetails(android: androidDetails),
+      payload: '/calls?conversation=$conversationId',
+    );
+  } catch (e) {
+    debugPrint('showIncomingCallNotification error: $e');
+  }
+}
+
+Future<void> cancelIncomingCallNotification() async {
+  try {
+    await _localNotifications.cancel(id: 8888);
+  } catch (_) {}
 }
 
 String? _pendingPushRoute;
@@ -32,8 +111,26 @@ void Function(String route)? _go;
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // System tray already shows the FCM notification payload. This isolate
-  // exists so the plugin does not drop background messages.
+  try {
+    await FirebaseBootstrap.init();
+  } catch (_) {}
+  final data = message.data;
+  final title = message.notification?.title ?? data['title'] ?? '';
+  final isCall = data['type'] == 'CALL_INVITE' ||
+      title.toString().toLowerCase().contains('call') ||
+      (data['url']?.toString().contains('calls') ?? false);
+
+  if (isCall) {
+    final callerName = data['callerName'] ?? 'Someone';
+    final conversationName = data['conversationName'] ?? 'TeamTime';
+    final conversationId = data['conversationId'] ?? '';
+    await initLocalNotifications();
+    await showIncomingCallNotification(
+      callerName: callerName.toString(),
+      conversationName: conversationName.toString(),
+      conversationId: conversationId.toString(),
+    );
+  }
 }
 
 String? takePendingPushRoute() {
@@ -69,7 +166,7 @@ Future<void> attachPushRouting(void Function(String route) go) async {
   if (pending != null) go(pending);
 }
 
-Future<void> registerAndroidPush(ApiClient api) async {
+Future<void> registerAndroidPush(ApiClient api, {int retryCount = 0}) async {
   if (!FirebaseBootstrap.ready) return;
   await _ensureAndroidPushChannel();
   try {
@@ -81,6 +178,7 @@ Future<void> registerAndroidPush(ApiClient api) async {
       '/api/v1/notifications/push/subscribe',
       data: {'token': token, 'deviceType': 'ANDROID'},
     );
+    debugPrint('[FCM] Successfully registered push token with server');
     if (!_tokenRefreshAttached) {
       _tokenRefreshAttached = true;
       messaging.onTokenRefresh.listen((refreshed) async {
@@ -97,6 +195,11 @@ Future<void> registerAndroidPush(ApiClient api) async {
     }
   } catch (e) {
     debugPrint('FCM register skipped: $e');
+    if (retryCount < 6) {
+      Future.delayed(Duration(seconds: 3 * (retryCount + 1)), () {
+        registerAndroidPush(api, retryCount: retryCount + 1);
+      });
+    }
   }
 }
 
