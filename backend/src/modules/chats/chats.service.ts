@@ -882,80 +882,86 @@ export class ChatsService {
       },
     });
 
-    const feed = await Promise.all(
-      participants.map(async (p) => {
-        const c = p.conversation;
-
-        // Calculate unread counts
-        const unreadCount = await this.prisma.message.count({
-          where: {
-            conversationId: c.id,
-            senderId: { not: userId },
-            messageType: {
-              notIn: CALL_MESSAGE_TYPES,
-            },
-            reads: {
-              none: { userId },
-            },
-          },
-        });
-
-        // Determine recipient info for DIRECT chats
-        let recipient = null;
-        if (c.type === 'DIRECT' && c.participants.length > 0) {
-          const directUser = c.participants[0].user;
-          recipient = {
-            id: directUser.id,
-            email: directUser.email ?? null,
-            displayName: directUser.profile?.displayName || 'User',
-            avatarUrl: directUser.profile?.avatarUrl,
-            aboutText: directUser.profile?.aboutText ?? null,
-            availability: directUser.profile?.statusAvailability ?? null,
-            presence: this.presence.isOnline(directUser.id)
-              ? 'ONLINE'
-              : 'OFFLINE',
-          };
-        }
-
-        return {
-          conversationId: c.id,
-          type: c.type,
-          group: c.group
-            ? {
-                name: c.group.name,
-                description: c.group.description,
-                teamName: c.group.teamName,
-                channelSlug: c.group.channelSlug,
-                spaceType: c.group.spaceType,
-                isReadOnly: c.group.isReadOnly,
-              }
-            : null,
-          name:
-            c.type === 'GROUP' || c.type === 'BROADCAST'
-              ? c.group?.name
-              : recipient?.displayName || 'Direct Chat',
-          avatarUrl:
-            c.type === 'GROUP' || c.type === 'BROADCAST'
-              ? c.group?.avatarUrl
-              : recipient?.avatarUrl,
-          unreadCount,
-          isMuted: c.mutedBy.length > 0,
-          isPinned: c.pinnedMessages.length > 0,
-          isArchived: c.archivedBy.length > 0,
-          isMember: true,
-          lastMessage: c.messages[0]
-            ? {
-                id: c.messages[0].id,
-                content: c.messages[0].content,
-                senderId: c.messages[0].senderId,
-                messageType: c.messages[0].messageType,
-                createdAt: c.messages[0].createdAt,
-              }
-            : null,
-          recipient,
-        };
-      }),
+    // One grouped unread count for the whole feed — previously this was one
+    // `message.count` per conversation inside Promise.all, which made the
+    // feed O(conversations) heavy queries on every load.
+    const unreadRows = await this.prisma.message.groupBy({
+      by: ['conversationId'],
+      where: {
+        conversationId: { in: participants.map((p) => p.conversation.id) },
+        senderId: { not: userId },
+        messageType: {
+          notIn: CALL_MESSAGE_TYPES,
+        },
+        reads: {
+          none: { userId },
+        },
+      },
+      _count: { _all: true },
+    });
+    const unreadByConversation = new Map(
+      unreadRows.map((row) => [row.conversationId, row._count._all]),
     );
+
+    const feed = participants.map((p) => {
+      const c = p.conversation;
+      const unreadCount = unreadByConversation.get(c.id) ?? 0;
+
+      // Determine recipient info for DIRECT chats
+      let recipient = null;
+      if (c.type === 'DIRECT' && c.participants.length > 0) {
+        const directUser = c.participants[0].user;
+        recipient = {
+          id: directUser.id,
+          email: directUser.email ?? null,
+          displayName: directUser.profile?.displayName || 'User',
+          avatarUrl: directUser.profile?.avatarUrl,
+          aboutText: directUser.profile?.aboutText ?? null,
+          availability: directUser.profile?.statusAvailability ?? null,
+          presence: this.presence.isOnline(directUser.id)
+            ? 'ONLINE'
+            : 'OFFLINE',
+        };
+      }
+
+      return {
+        conversationId: c.id,
+        type: c.type,
+        group: c.group
+          ? {
+              name: c.group.name,
+              description: c.group.description,
+              teamName: c.group.teamName,
+              channelSlug: c.group.channelSlug,
+              spaceType: c.group.spaceType,
+              isReadOnly: c.group.isReadOnly,
+            }
+          : null,
+        name:
+          c.type === 'GROUP' || c.type === 'BROADCAST'
+            ? c.group?.name
+            : recipient?.displayName || 'Direct Chat',
+        avatarUrl:
+          c.type === 'GROUP' || c.type === 'BROADCAST'
+            ? c.group?.avatarUrl
+            : recipient?.avatarUrl,
+        unreadCount,
+        isMuted: c.mutedBy.length > 0,
+        isPinned: c.pinnedMessages.length > 0,
+        isArchived: c.archivedBy.length > 0,
+        isMember: true,
+        lastMessage: c.messages[0]
+          ? {
+              id: c.messages[0].id,
+              content: c.messages[0].content,
+              senderId: c.messages[0].senderId,
+              messageType: c.messages[0].messageType,
+              createdAt: c.messages[0].createdAt,
+            }
+          : null,
+        recipient,
+      };
+    });
 
     // Member-only: only conversations the user participates in (no workspace-wide discoverable list).
 
@@ -1063,16 +1069,31 @@ export class ChatsService {
       MAX_MESSAGE_PAGE_SIZE,
     );
 
-    // Mark everything unread in one statement. The previous implementation
-    // fetched every unread id and issued one upsert per message inside a single
-    // transaction, which does not survive a channel with a large backlog.
-    await this.prisma.$executeRaw`
-      INSERT OR IGNORE INTO "MessageRead" ("id", "messageId", "userId", "readAt")
-      SELECT lower(hex(randomblob(16))), m."id", ${userId}, CURRENT_TIMESTAMP
-      FROM "Message" m
-      WHERE m."conversationId" = ${conversationId}
-        AND m."senderId" <> ${userId}
-    `;
+    // Mark unread messages read in bulk. Only messages with no read row yet
+    // are fetched (idempotent across repeated page loads) and inserted with
+    // skipDuplicates — portable across SQLite and Postgres, unlike the raw
+    // INSERT OR IGNORE ... randomblob() statement it replaces.
+    const unreadIds = (
+      await this.prisma.message.findMany({
+        where: {
+          conversationId,
+          senderId: { not: userId },
+          reads: { none: { userId } },
+        },
+        select: { id: true },
+      })
+    ).map((m) => m.id);
+
+    if (unreadIds.length > 0) {
+      await this.prisma.messageRead.createMany({
+        data: unreadIds.map((messageId) => ({
+          messageId,
+          userId,
+          readAt: new Date(),
+        })),
+        skipDuplicates: true,
+      });
+    }
 
     // Jumping to a search hit: centre the page on that message so the reader
     // gets the surrounding conversation rather than an isolated line. A missing

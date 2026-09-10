@@ -2,7 +2,7 @@
 set -euo pipefail
 cd /app
 npx prisma generate
-if [ "${PRISMA_DB_PUSH:-false}" = "true" ]; then
-  npx prisma db push
-fi
+# Always apply committed migrations. `db push` is a dev tool and must never
+# run against a production database (it can drop columns/data on drift).
+npx prisma migrate deploy
 exec node dist/src/main.js

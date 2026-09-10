@@ -21,7 +21,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-export DATABASE_URL="${DATABASE_URL:-file:/var/lib/teamtime/dev.db}"
+export DATABASE_URL="${DATABASE_URL:-postgresql://teamtime:${PGPASSWORD:-teamtime}@localhost:5432/teamtime?schema=public}"
 export THROTTLE_TTL_MS="${THROTTLE_TTL_MS:-60000}"
 export THROTTLE_LIMIT="${THROTTLE_LIMIT:-600}"
 export CORS_ORIGIN="${CORS_ORIGIN:-https://communication.impmeet.com}"

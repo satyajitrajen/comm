@@ -86,13 +86,13 @@ echo "=== Backend: prisma migrate ==="
 if [ "$SKIP_MIGRATE" = false ]; then
   (
     cd "$ROOT/backend"
-    export DATABASE_URL="${DATABASE_URL:-file:/var/lib/teamtime/dev.db}"
+    export DATABASE_URL="${DATABASE_URL:-postgresql://teamtime:${PGPASSWORD:-teamtime}@localhost:5432/teamtime?schema=public}"
     # Load DATABASE_URL from .env if present
     set -a
     # shellcheck disable=SC1090
     source "$ENV_FILE"
     set +a
-    export DATABASE_URL="${DATABASE_URL:-file:/var/lib/teamtime/dev.db}"
+    export DATABASE_URL="${DATABASE_URL:-postgresql://teamtime:${PGPASSWORD:-teamtime}@localhost:5432/teamtime?schema=public}"
     if [ ! -d node_modules ]; then
       npm ci --omit=dev
     fi

@@ -1,4 +1,5 @@
 import {
+  OnGatewayInit,
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
@@ -10,6 +11,8 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { Redis } from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma.service';
 import { getJwtSecret } from '../../config/jwt';
@@ -69,12 +72,41 @@ type CallEndedPayload = {
   },
 })
 export class RealtimeGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
   server: Server;
 
   private readonly logger = new Logger(RealtimeGateway.name);
+
+  /**
+   * Rooms fan out through the Redis adapter when REDIS_URL is set, so
+   * multiple backend processes can serve the same socket rooms. The
+   * presence ref-counts and the activeCalls registry below remain
+   * per-process — horizontal scaling of CALLS still needs a shared
+   * registry; chat/presence-less rooms are multi-instance safe.
+   */
+  async afterInit() {
+    const redisUrl = process.env.REDIS_URL?.trim();
+    if (!redisUrl) {
+      this.logger.warn(
+        'REDIS_URL not set — socket.io has NO pub/sub adapter. Single-process deployment only.',
+      );
+      return;
+    }
+    try {
+      const pub = new Redis(redisUrl, { maxRetriesPerRequest: 2 });
+      const sub = pub.duplicate();
+      this.server.adapter(createAdapter(pub, sub));
+      this.logger.log('socket.io Redis adapter enabled');
+    } catch (err) {
+      this.logger.error(
+        `Failed to enable Redis adapter: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 
   /** In-memory registry of live calls, keyed by Jitsi room name. */
   private activeCalls = new Map<string, ActiveCall>();

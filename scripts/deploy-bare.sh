@@ -11,7 +11,7 @@ cd "$ROOT/backend"
 npm ci
 npm run build
 npx prisma generate
-npx prisma db push
+npx prisma migrate deploy
 
 echo "=== Frontend ==="
 cd "$ROOT/frontend"

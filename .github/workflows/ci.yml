@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend build
+    name: Backend build + test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -28,8 +28,12 @@ jobs:
       - name: Prisma generate
         env:
           # schema uses env("DATABASE_URL"); generate does not need a real DB
-          DATABASE_URL: file:./ci.db
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
         run: npx prisma generate
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
       - name: Build
         run: npm run build
 
@@ -52,3 +56,21 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+
+  mobile:
+    name: Mobile analyze + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Pub get
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+      - name: Test
+        run: flutter test
