@@ -75,3 +75,12 @@ Each phase contains: objective and scope, dependencies, deliverables, verificati
 - **Verification steps:** PRD acceptance criteria checklist.
 - **Exit criteria:** All v1 acceptance criteria checked or explicitly waived in memory.md.
 - **Current status:** `complete`
+
+## Phase 7 — Production readiness hardening (2026-09-10)
+
+- **Objective and scope:** Audit-driven hardening of backend + mobile for production: mobile/backend contract alignment, backend security (strict DTO validation, upload MIME allowlist, hashed reset tokens, crypto-random OTP, deny-by-default active-session checks, localhost CORS removal), PostgreSQL 16 migration with baseline migration + SQLite data carry-over script, optional Redis socket adapter, hot-path query perf + indexes, mobile authenticated cached images, MediaStore scoped-storage downloads, release signing config with minify, socket reconnect backoff caps, StatefulShellRoute state preservation, call reliability (45s ring timeout, notification Accept/Decline driving the call controller, mic/camera gating).
+- **Dependencies:** Phases 0–6.
+- **Deliverables:** Branch `feat/production-readiness`; plan at `docs/superpowers/plans/2026-09-10-production-readiness.md`; docker-compose Postgres/Redis services; CI with backend tsc+jest+build and mobile analyze+test.
+- **Verification steps:** backend `tsc --noEmit` + jest + `nest build`; `flutter analyze` + `flutter test`; release APK builds (debug-signed fallback without keystore).
+- **Exit criteria:** Ship-blockers resolved; runtime Postgres/Redis verification performed on the deploy box (no Docker on the dev machine); Play keystore generated as a release-ops task.
+- **Current status:** `complete`

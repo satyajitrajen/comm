@@ -121,6 +121,9 @@ Jitsi: room naming must use the same helper as `frontend/src/lib/callRoom.ts`.
 - Paginate messages as web does.
 - One socket per logged-in session.
 - FCM fan-out stays per-device in PushService (same scale as current VAPID loop).
+- Primary datastore is PostgreSQL 16 (SQLite remains as legacy archive under `backend/prisma/migrations-sqlite-archive/`); hot query paths (unread counts, read receipts, feed joins) use `groupBy`/bulk writes instead of per-row loops.
+- Socket.IO optionally scales horizontally via `@socket.io/redis-adapter` when `REDIS_URL` is set. Presence and the in-memory `activeCalls` registry remain per-process: with more than one backend instance, calls still work (events fan out through Redis), but call registry bookkeeping is not shared — run a single backend instance behind the reverse proxy unless that limitation is addressed.
+- Release mobile builds are minified/shrunk; Android downloads go through MediaStore (scoped storage).
 
 ## Observability
 
@@ -135,7 +138,11 @@ Jitsi: room naming must use the same helper as `frontend/src/lib/callRoom.ts`.
 | debug | `http://10.0.2.2:5000` | same origin/path as web socket |
 | profile/release | `https://communication.impmeet.com` | same host |
 
-Physical device debug: developer setting for LAN base URL.
+Physical device debug: developer setting for LAN base URL (debug builds only; release ignores the override).
+
+Backend runtime (production): `docker-compose.yml` runs PostgreSQL 16 + Redis 7 alongside the backend; the entrypoint runs `prisma migrate deploy` on start (never `db push` in production). One-time SQLite data carry-over: `npx ts-node prisma/migrate-sqlite-data.ts` with `SQLITE_URL` pointing at the old `dev.db`. `REDIS_URL` is optional — without it the gateway logs a single-instance warning and runs without the adapter.
+
+Release Android signing: copy `mobile/android/key.properties.example` to `key.properties`, point `storeFile` at the release keystore, and keep both out of git. Without the file the release build is debug-signed and NOT publishable (a loud Gradle warning prints).
 
 `google-services.json` lives in `mobile/android/app/` and is documented; do not put private keys in git if the team treats the file as secret.
 
@@ -154,6 +161,8 @@ Physical device debug: developer setting for LAN base URL.
 | Native Jitsi SDK | minSdk 24, larger APK, manifest merge rules |
 | Android only | iOS folders may exist from Flutter create but are out of v1 QA |
 | Sign-in only | No register screens |
+| PostgreSQL 16 as primary datastore | Prisma migrations are authoritative (`migrate deploy`); SQLite migrations archived for reference |
+| Optional Redis socket adapter | Multi-instance scaling possible; presence/activeCalls stay per-process, so default is one backend instance |
 
 ## Diagrams
 
