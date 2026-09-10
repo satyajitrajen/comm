@@ -62,7 +62,7 @@ class _PeopleScreenState extends ConsumerState<PeopleScreen> {
                 }
                 final me = ref.read(authProvider).user?['id'];
                 final items = (snap.data ?? []).where((u) {
-                  if (u['id'] == me) return false;
+                  if (u['userId'] == me) return false;
                   final name = '${u['displayName'] ?? u['profile']?['displayName'] ?? ''}'.toLowerCase();
                   return _q.isEmpty || name.contains(_q);
                 }).toList();
@@ -88,7 +88,7 @@ class _PeopleScreenState extends ConsumerState<PeopleScreen> {
                         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text('${u['email'] ?? u['department'] ?? ''}', style: const TextStyle(color: Color(0xFF64748B))),
                         trailing: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF0284C7)),
-                        onTap: () => _dm('${u['id']}', name),
+                        onTap: () => _dm('${u['userId']}', name),
                       ),
                     );
                   },

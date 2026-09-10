@@ -72,7 +72,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       ..off('message.edited', _onEdited)
       ..off('message.deleted', _onDeleted)
       ..off('poll.created', _onSent)
-      ..off('poll.voted', _onEdited);
+      ..off('poll.voted', _onPollVoted);
     socket.emit('room.leave', {'conversationId': widget.conversationId});
   }
 
@@ -89,7 +89,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       ..on('message.edited', _onEdited)
       ..on('message.deleted', _onDeleted)
       ..on('poll.created', _onSent)
-      ..on('poll.voted', _onEdited);
+      ..on('poll.voted', _onPollVoted);
     if (socket.connected) _onConnect(null);
   }
 
@@ -121,15 +121,54 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
 
   void _onEdited(dynamic data) {
-    if (!mounted) return;
-    if (data is Map) _upsert(Map<String, dynamic>.from(data));
+    if (!mounted || data is! Map) return;
+    final id = data['messageId'] ?? data['id'];
+    if (id == null) return;
+    setState(() {
+      final i = _messages.indexWhere((m) => m['id'] == id);
+      if (i < 0) return;
+      final merged = Map<String, dynamic>.from(_messages[i]);
+      if (data['content'] != null) merged['content'] = data['content'];
+      if (data['isEdited'] != null) merged['isEdited'] = data['isEdited'];
+      if (data['updatedAt'] != null) merged['updatedAt'] = data['updatedAt'];
+      _messages[i] = merged;
+    });
   }
 
   void _onDeleted(dynamic data) {
-    if (!mounted) return;
-    if (data is Map && data['id'] != null) {
-      setState(() => _messages.removeWhere((m) => m['id'] == data['id']));
-    }
+    if (!mounted || data is! Map) return;
+    final id = data['messageId'] ?? data['id'];
+    if (id == null) return;
+    setState(() {
+      final i = _messages.indexWhere((m) => m['id'] == id);
+      if (i < 0) return;
+      if (data['isDeletedGlobally'] == true) {
+        final merged = Map<String, dynamic>.from(_messages[i]);
+        merged['content'] = data['content'] ?? 'This message has been deleted';
+        merged['isDeletedGlobally'] = true;
+        _messages[i] = merged;
+      } else {
+        _messages.removeAt(i);
+      }
+    });
+  }
+
+  void _onPollVoted(dynamic data) {
+    if (!mounted || data is! Map) return;
+    final pollId = data['id'];
+    if (pollId == null) return;
+    setState(() {
+      final i = _messages.indexWhere((m) =>
+          m['polls'] is List &&
+          (m['polls'] as List).any((p) => p is Map && p['id'] == pollId));
+      if (i < 0) return;
+      final merged = Map<String, dynamic>.from(_messages[i]);
+      final polls = (merged['polls'] as List).toList();
+      final pi = polls.indexWhere((p) => p is Map && p['id'] == pollId);
+      if (pi >= 0) polls[pi] = Map<String, dynamic>.from(data);
+      merged['polls'] = polls;
+      _messages[i] = merged;
+    });
   }
 
   void _upsert(Map<String, dynamic> msg) {
@@ -1142,7 +1181,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   data: {'optionId': optId},
                 );
                 if (res.data is Map) {
-                  _upsert(Map<String, dynamic>.from(res.data as Map));
+                  _onPollVoted(Map<String, dynamic>.from(res.data as Map));
                 }
               } catch (e) {
                 if (mounted) {

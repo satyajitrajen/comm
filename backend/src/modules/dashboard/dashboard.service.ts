@@ -123,6 +123,21 @@ export class DashboardService {
       }),
     ]);
 
+    const recentIds = recentConversations.map((c) => c.id);
+    const recentUnread = await this.prisma.message.groupBy({
+      by: ['conversationId'],
+      where: {
+        conversationId: { in: recentIds },
+        senderId: { not: userId },
+        messageType: { notIn: CALL_MESSAGE_TYPES },
+        reads: { none: { userId } },
+      },
+      _count: { _all: true },
+    });
+    const unreadByConversation = new Map(
+      recentUnread.map((row) => [row.conversationId, row._count._all]),
+    );
+
     return {
       workspace: {
         id: workspaceUser.workspace.id,
@@ -146,6 +161,8 @@ export class DashboardService {
             directUser?.profile?.displayName ||
             directUser?.email ||
             'Conversation',
+          avatarUrl: directUser?.profile?.avatarUrl ?? null,
+          unreadCount: unreadByConversation.get(conversation.id) ?? 0,
           group: conversation.group,
           lastMessage: conversation.messages[0] || null,
         };

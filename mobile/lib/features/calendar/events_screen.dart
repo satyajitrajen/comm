@@ -23,7 +23,7 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
   }
 
   Future<List<Map<String, dynamic>>> _load() async {
-    final res = await ref.read(apiClientProvider).dio.get('/api/v1/calendar/events');
+    final res = await ref.read(apiClientProvider).dio.get('/api/v1/calendar');
     final data = res.data;
     final list = data is List
         ? data

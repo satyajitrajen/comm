@@ -57,6 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             );
           }
           final d = snap.data ?? {};
+          final stats = (d['stats'] as Map?) ?? const {};
           final upcoming = (d['upcomingEvents'] as List?) ?? [];
           return RefreshIndicator(
             onRefresh: () async {
@@ -73,10 +74,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    _stat('Unread', '${d['unreadCount'] ?? 0}', Icons.chat_bubble_outline_rounded, onTap: () => context.push('/dms')),
-                    _stat('Tasks', '${d['openTaskCount'] ?? 0}', Icons.check_circle_outline_rounded, onTap: () => context.push('/activity')),
-                    _stat('Files', '${d['fileCount'] ?? 0}', Icons.folder_outlined, onTap: () => context.push('/files')),
-                    _stat('Events', '${d['upcomingEventCount'] ?? 0}', Icons.event_note_rounded, onTap: () => context.push('/events')),
+                    _stat('Unread', '${stats['unreadMessages'] ?? 0}', Icons.chat_bubble_outline_rounded, onTap: () => context.push('/dms')),
+                    _stat('Tasks', '${stats['openTasks'] ?? 0}', Icons.check_circle_outline_rounded, onTap: () => context.push('/activity')),
+                    _stat('Files', '${stats['files'] ?? 0}', Icons.folder_outlined, onTap: () => context.push('/files')),
+                    _stat('Events', '${stats['upcomingEvents'] ?? 0}', Icons.event_note_rounded, onTap: () => context.push('/events')),
                   ],
                 ),
                 const SizedBox(height: 24),

@@ -24,6 +24,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _name = TextEditingController(text: user?['displayName'] as String? ?? '');
     _about = TextEditingController(text: user?['aboutText'] as String? ?? '');
     _availability = user?['availability'] as String? ?? '';
+    _hydrateFromServer();
+  }
+
+  // Login payloads omit aboutText/statusAvailability; hydrate from /auth/me so
+  // saving does not overwrite the stored values with blanks.
+  Future<void> _hydrateFromServer() async {
+    try {
+      final res = await ref.read(apiClientProvider).dio.get('/api/v1/auth/me');
+      if (!mounted || res.data is! Map) return;
+      final me = Map<String, dynamic>.from(res.data as Map);
+      final u = me['user'] is Map ? Map<String, dynamic>.from(me['user'] as Map) : me;
+      final profile =
+          u['profile'] is Map ? Map<String, dynamic>.from(u['profile'] as Map) : <String, dynamic>{};
+      final about = (profile['aboutText'] ?? u['aboutText']) as String? ?? '';
+      final avail = (profile['statusAvailability'] ?? u['statusAvailability'] ?? u['availability']) as String? ?? '';
+      final name = (profile['displayName'] ?? u['displayName']) as String? ?? '';
+      setState(() {
+        _about.text = about;
+        if (avail.isNotEmpty) _availability = avail;
+        if (name.isNotEmpty) _name.text = name;
+      });
+    } catch (_) {
+      // Keep current values; saving still works, it just may not include server-side about text.
+    }
   }
 
   @override
