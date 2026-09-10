@@ -9,7 +9,7 @@ import {
 import { PrismaService } from '../../prisma.service';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
+import { createHash, randomInt, randomUUID } from 'crypto';
 
 import { PermissionsService } from '../../common/permissions.service';
 import { MailService } from '../../common/mail.service';
@@ -43,12 +43,12 @@ export class AuthService {
   ) {}
 
   /**
-   * Hard ceiling for the JWT clock. Real expiry is logout (LoginSession
-   * revoked + `sid` checked on every request). Keep a long TTL so sockets
-   * do not die mid-day from a 30m access token.
+   * Short-lived access tokens; the rotating refresh flow keeps sessions
+   * alive without re-login. Logout/password change kill sessions via the
+   * LoginSession `sid` check on every request.
    */
   private accessTokenExpiresIn(): string {
-    return process.env.ACCESS_TOKEN_EXPIRES_IN?.trim() || '365d';
+    return process.env.ACCESS_TOKEN_EXPIRES_IN?.trim() || '24h';
   }
 
   async register(body: {
@@ -190,7 +190,7 @@ export class AuthService {
         );
       }
 
-      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      const otp = String(randomInt(100000, 1000000));
       await this.stageOtpChallenge(verifyKey, otp, 10 * 60 * 1000);
 
       // Actually deliver the code. Until this existed, 2FA could only be
@@ -368,7 +368,7 @@ export class AuthService {
       await this.prisma.passwordResetToken.create({
         data: {
           userId: user.id,
-          tokenHash: await bcrypt.hash(token, 10),
+          tokenHash: createHash('sha256').update(token).digest('hex'),
           expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
         },
       });
@@ -396,23 +396,15 @@ export class AuthService {
       throw new BadRequestException('Password must be at least 8 characters');
     }
 
-    // The token is random, so it must be located by comparing against the
-    // live candidates rather than by a direct hash lookup.
-    const candidates = await this.prisma.passwordResetToken.findMany({
-      where: { usedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
+    // Tokens are 256-bit random values, so the sha256 hash is looked up
+    // directly instead of bcrypt-comparing every live candidate (which let
+    // one request burn seconds of CPU hashing up to 200 rows).
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const matched = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
     });
 
-    let matched: (typeof candidates)[number] | null = null;
-    for (const candidate of candidates) {
-      if (await bcrypt.compare(token, candidate.tokenHash)) {
-        matched = candidate;
-        break;
-      }
-    }
-
-    if (!matched) {
+    if (!matched || matched.usedAt || matched.expiresAt <= new Date()) {
       throw new BadRequestException('Reset link is invalid or has expired');
     }
 

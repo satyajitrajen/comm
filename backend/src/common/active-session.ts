@@ -6,15 +6,17 @@ import { PrismaService } from '../prisma.service';
  * every HTTP/WS auth path must reject revoked sessions so tokens die on
  * logout instead of waiting for JWT clock expiry.
  *
- * JWTs issued before `sid` existed are allowed through until their natural
- * `exp` (legacy 30m tokens) — no forced mass logout.
+ * Tokens WITHOUT `sid` are rejected: all current issue paths attach the
+ * session id, so a missing `sid` means a forged or pre-revocation token.
  */
 export async function assertActiveLoginSession(
   prisma: PrismaService,
   sessionId: string | undefined,
   userId: string | undefined,
 ): Promise<void> {
-  if (!sessionId || !userId) return;
+  if (!sessionId || !userId) {
+    throw new UnauthorizedException('Session expired. Please sign in again.');
+  }
 
   const session = await prisma.loginSession.findFirst({
     where: { id: sessionId, userId, isRevoked: false },
@@ -32,7 +34,7 @@ export async function isLoginSessionActive(
   sessionId: string | undefined,
   userId: string | undefined,
 ): Promise<boolean> {
-  if (!sessionId || !userId) return true;
+  if (!sessionId || !userId) return false;
   const session = await prisma.loginSession.findFirst({
     where: { id: sessionId, userId, isRevoked: false },
     select: { id: true },

@@ -11,6 +11,12 @@ import {
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminService } from './admin.service';
+import {
+  AdminCreateUserDto,
+  AdminUpdateUserDto,
+  ImportUsersDto,
+  UpdateApprovalCycleDto,
+} from './admin.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api/v1/admin')
@@ -25,18 +31,7 @@ export class AdminController {
   @Post('users')
   async createUser(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      email?: string;
-      phoneNumber?: string | null;
-      password?: string;
-      displayName?: string;
-      role?: string;
-      department?: string | null;
-      statusAvailability?: string;
-      aboutText?: string;
-      isActive?: boolean;
-    },
+    @Body() body: AdminCreateUserDto,
   ) {
     return await this.adminService.createUser(userId, body);
   }
@@ -45,19 +40,7 @@ export class AdminController {
   async updateUser(
     @CurrentUserId() userId: string,
     @Param('targetUserId') targetUserId: string,
-    @Body()
-    body: {
-      email?: string;
-      phoneNumber?: string | null;
-      password?: string;
-      displayName?: string;
-      role?: string;
-      department?: string | null;
-      statusAvailability?: string;
-      aboutText?: string;
-      avatarUrl?: string | null;
-      isActive?: boolean;
-    },
+    @Body() body: AdminUpdateUserDto,
   ) {
     return await this.adminService.updateUser(userId, targetUserId, body);
   }
@@ -65,7 +48,7 @@ export class AdminController {
   @Post('users/import')
   async importUsers(
     @CurrentUserId() userId: string,
-    @Body() body: { csv: string },
+    @Body() body: ImportUsersDto,
   ) {
     return await this.adminService.importUsersFromCsv(userId, body.csv);
   }
@@ -97,15 +80,7 @@ export class AdminController {
   @Patch('settings/approval-cycle')
   async updateApprovalCycle(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      enabled?: boolean;
-      requiredApprovals?: number;
-      approverRole?: string;
-      appliesTo?: string[];
-      autoApproveAdmins?: boolean;
-      escalationHours?: number;
-    },
+    @Body() body: UpdateApprovalCycleDto,
   ) {
     return await this.adminService.updateApprovalCycle(userId, body);
   }

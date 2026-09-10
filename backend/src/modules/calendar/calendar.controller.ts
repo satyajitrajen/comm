@@ -14,6 +14,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 import { CalendarService } from './calendar.service';
+import { CreateEventDto, SendInvitesDto, UpdateEventDto } from './calendar.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api/v1/calendar')
@@ -32,16 +33,7 @@ export class CalendarController {
   @Post()
   async createEvent(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      title: string;
-      description?: string;
-      startsAt: string;
-      endsAt: string;
-      teamName?: string;
-      meetingLink?: string;
-      attendeeIds?: string[];
-    },
+    @Body() body: CreateEventDto,
   ) {
     return await this.calendarService.createEvent(userId, body);
   }
@@ -50,17 +42,7 @@ export class CalendarController {
   async updateEvent(
     @CurrentUserId() userId: string,
     @Param('id') eventId: string,
-    @Body()
-    body: {
-      title?: string;
-      description?: string;
-      startsAt?: string;
-      endsAt?: string;
-      teamName?: string;
-      meetingLink?: string;
-      attendeeIds?: string[];
-      notifyAttendees?: boolean;
-    },
+    @Body() body: UpdateEventDto,
   ) {
     return await this.calendarService.updateEvent(userId, eventId, body);
   }
@@ -77,10 +59,7 @@ export class CalendarController {
   async sendInvites(
     @CurrentUserId() userId: string,
     @Param('id') eventId: string,
-    @Body()
-    body?: {
-      attendeeIds?: string[];
-    },
+    @Body() body: SendInvitesDto,
   ) {
     return await this.calendarService.sendInvites(
       userId,

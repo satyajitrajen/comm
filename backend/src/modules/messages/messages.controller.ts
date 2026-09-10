@@ -10,6 +10,16 @@ import {
   Query,
 } from '@nestjs/common';
 import { MessagesService } from './messages.service';
+import {
+  CreatePollDto,
+  CreateTaskFromMessageDto,
+  EditMessageDto,
+  ForwardMessageDto,
+  PinMessageDto,
+  ReactionDto,
+  SendMessageDto,
+  VotePollDto,
+} from './messages.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 
@@ -54,14 +64,7 @@ export class MessagesController {
   @Post()
   async sendMessage(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      conversationId: string;
-      content?: string;
-      replyToMessageId?: string;
-      messageType?: string;
-      priority?: string;
-    },
+    @Body() body: SendMessageDto,
   ) {
     return await this.messagesService.sendMessage(userId, body);
   }
@@ -70,7 +73,7 @@ export class MessagesController {
   async editMessage(
     @CurrentUserId() userId: string,
     @Param('id') messageId: string,
-    @Body() body: { content: string },
+    @Body() body: EditMessageDto,
   ) {
     return await this.messagesService.editMessage(
       userId,
@@ -97,7 +100,7 @@ export class MessagesController {
   async addReaction(
     @CurrentUserId() userId: string,
     @Param('id') messageId: string,
-    @Body() body: { emoji: string },
+    @Body() body: ReactionDto,
   ) {
     return await this.messagesService.addReaction(
       userId,
@@ -110,7 +113,7 @@ export class MessagesController {
   async removeReaction(
     @CurrentUserId() userId: string,
     @Param('id') messageId: string,
-    @Body() body: { emoji: string },
+    @Body() body: ReactionDto,
   ) {
     return await this.messagesService.removeReaction(
       userId,
@@ -122,14 +125,7 @@ export class MessagesController {
   @Post('task')
   async createTask(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      messageId: string;
-      title: string;
-      assigneeIds: string[];
-      dueDate?: string;
-      priority?: string;
-    },
+    @Body() body: CreateTaskFromMessageDto,
   ) {
     return await this.messagesService.createTaskFromMessage(userId, body);
   }
@@ -137,14 +133,7 @@ export class MessagesController {
   @Post('poll')
   async createPoll(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      conversationId: string;
-      question: string;
-      options: string[];
-      expiresAt?: string;
-      isMultiSelect?: boolean;
-    },
+    @Body() body: CreatePollDto,
   ) {
     return await this.messagesService.createPoll(userId, body);
   }
@@ -153,7 +142,7 @@ export class MessagesController {
   async votePoll(
     @CurrentUserId() userId: string,
     @Param('id') pollId: string,
-    @Body() body: { optionId: string },
+    @Body() body: VotePollDto,
   ) {
     return await this.messagesService.votePoll(userId, pollId, body.optionId);
   }
@@ -177,7 +166,7 @@ export class MessagesController {
   async pinMessage(
     @CurrentUserId() userId: string,
     @Param('id') messageId: string,
-    @Body() body: { conversationId: string },
+    @Body() body: PinMessageDto,
   ) {
     return await this.messagesService.pinMessage(
       userId,
@@ -190,7 +179,7 @@ export class MessagesController {
   async unpinMessage(
     @CurrentUserId() userId: string,
     @Param('id') messageId: string,
-    @Body() body: { conversationId: string },
+    @Body() body: PinMessageDto,
   ) {
     return await this.messagesService.unpinMessage(
       userId,
@@ -203,7 +192,7 @@ export class MessagesController {
   async forwardMessage(
     @CurrentUserId() userId: string,
     @Param('id') messageId: string,
-    @Body() body: { targetConversationId: string },
+    @Body() body: ForwardMessageDto,
   ) {
     return await this.messagesService.forwardMessage(
       userId,

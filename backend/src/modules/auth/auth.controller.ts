@@ -9,6 +9,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto, RefreshTokenDto } from './dto/refresh-token.dto';
 import { Verify2FaDto } from './dto/verify-2fa.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 
 @Controller('api/v1/auth')
 @Throttle({ default: { limit: 40, ttl: 60_000 } })
@@ -45,9 +46,12 @@ export class AuthController {
    */
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('forgot-password')
-  async forgotPassword(@Body() body: { email?: string }, @Req() req: Request) {
+  async forgotPassword(
+    @Body() body: ForgotPasswordDto,
+    @Req() req: Request,
+  ) {
     const origin = (req.headers.origin as string) || undefined;
-    await this.authService.requestPasswordReset(body?.email ?? '', origin);
+    await this.authService.requestPasswordReset(body.email ?? '', origin);
     return {
       ok: true,
       message: 'If that address has an account, a reset link is on its way.',
@@ -56,10 +60,10 @@ export class AuthController {
 
   @Throttle({ default: { limit: 8, ttl: 60_000 } })
   @Post('reset-password')
-  async resetPassword(@Body() body: { token?: string; password?: string }) {
+  async resetPassword(@Body() body: ResetPasswordDto) {
     return await this.authService.resetPassword(
-      body?.token ?? '',
-      body?.password ?? '',
+      body.token ?? '',
+      body.password ?? '',
     );
   }
 

@@ -26,10 +26,5 @@ export function isCorsOriginAllowed(origin: string | undefined): boolean {
   const allowed = parseCorsOrigins();
   if (allowed.length === 0) return true;
   if (allowed.includes(origin)) return true;
-  if (
-    origin.startsWith('http://localhost:') ||
-    origin.startsWith('http://127.0.0.1:')
-  )
-    return true;
   return false;
 }

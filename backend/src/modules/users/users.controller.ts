@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { UpdateProfileDto } from './users.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 
@@ -16,13 +17,7 @@ export class UsersController {
   @Patch('profile')
   async updateProfile(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      displayName?: string;
-      aboutText?: string;
-      avatarUrl?: string;
-      statusAvailability?: string;
-    },
+    @Body() body: UpdateProfileDto,
   ) {
     return await this.usersService.updateProfile(userId, body);
   }

@@ -18,6 +18,7 @@ import * as https from 'https';
 import {
   FILE_UPLOAD_MAX_BYTES,
   FILE_UPLOAD_MAX_LABEL,
+  isAllowedUploadMime,
 } from './files.constants';
 
 cloudinary.config();
@@ -284,6 +285,12 @@ export class FilesService {
       throw new BadRequestException(
         `File exceeds the maximum upload size of ${FILE_UPLOAD_MAX_LABEL}`,
       );
+    }
+
+    // Defense in depth: the multer filter already enforces this, but the
+    // service is also called from other paths and must not trust callers.
+    if (!isAllowedUploadMime(file.mimetype)) {
+      throw new BadRequestException('File type not allowed');
     }
 
     const workspaceUser = await this.getActiveWorkspace(userId);

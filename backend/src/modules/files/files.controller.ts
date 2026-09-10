@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -17,7 +18,9 @@ import { FilesService } from './files.service';
 import {
   FILE_UPLOAD_MAX_BYTES,
   INLINE_SAFE_MIME_TYPES,
+  isAllowedUploadMime,
 } from './files.constants';
+import { UploadFileDto } from './files.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
@@ -49,6 +52,13 @@ export class FilesController {
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: FILE_UPLOAD_MAX_BYTES },
+      fileFilter: (_req, file, cb) => {
+        if (isAllowedUploadMime(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('File type not allowed'), false);
+        }
+      },
     }),
   )
   async uploadFile(
@@ -60,7 +70,7 @@ export class FilesController {
       size: number;
       buffer: Buffer;
     },
-    @Body() body: { conversationId?: string },
+    @Body() body: UploadFileDto,
   ) {
     return await this.filesService.uploadFile(
       userId,

@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
+import { CreateTaskDto, UpdateTaskDto } from './tasks.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 
@@ -31,14 +32,7 @@ export class TasksController {
   @Post()
   async createTask(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      conversationId: string;
-      title: string;
-      assigneeIds?: string[];
-      dueDate?: string | null;
-      priority?: string;
-    },
+    @Body() body: CreateTaskDto,
   ) {
     return await this.tasksService.createTask(userId, body);
   }
@@ -47,14 +41,7 @@ export class TasksController {
   async updateTask(
     @CurrentUserId() userId: string,
     @Param('id') taskId: string,
-    @Body()
-    body: {
-      complete?: boolean;
-      status?: string;
-      title?: string;
-      dueDate?: string | null;
-      priority?: string;
-    },
+    @Body() body: UpdateTaskDto,
   ) {
     return await this.tasksService.updateTask(userId, taskId, body);
   }

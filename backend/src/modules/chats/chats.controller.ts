@@ -9,12 +9,17 @@ import {
   UseGuards,
   Query,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
 import { ChatsService } from './chats.service';
+import {
+  AddGroupMembersDto,
+  CreateDirectChatDto,
+  CreateGroupChatDto,
+  UpdateGroupChatDto,
+  UpdateMemberRoleDto,
+} from './chats.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user.decorator';
 
-@SkipThrottle()
 @UseGuards(JwtAuthGuard)
 @Controller('api/v1/chats')
 export class ChatsController {
@@ -28,7 +33,7 @@ export class ChatsController {
   @Post('direct')
   async createDirectChat(
     @CurrentUserId() userId: string,
-    @Body() body: { targetUserId: string },
+    @Body() body: CreateDirectChatDto,
   ) {
     return await this.chatsService.createDirectChat(userId, body.targetUserId);
   }
@@ -36,16 +41,7 @@ export class ChatsController {
   @Post('group')
   async createGroupChat(
     @CurrentUserId() userId: string,
-    @Body()
-    body: {
-      name: string;
-      description?: string;
-      participantIds: string[];
-      teamName?: string;
-      channelSlug?: string;
-      spaceType?: string;
-      isReadOnly?: boolean;
-    },
+    @Body() body: CreateGroupChatDto,
   ) {
     return await this.chatsService.createGroupChat(userId, body);
   }
@@ -54,14 +50,7 @@ export class ChatsController {
   async updateGroup(
     @CurrentUserId() userId: string,
     @Param('id') conversationId: string,
-    @Body()
-    body: {
-      name?: string;
-      description?: string;
-      teamName?: string;
-      spaceType?: string;
-      isReadOnly?: boolean;
-    },
+    @Body() body: UpdateGroupChatDto,
   ) {
     return await this.chatsService.updateGroupChat(
       userId,
@@ -135,7 +124,7 @@ export class ChatsController {
   async addMembers(
     @CurrentUserId() userId: string,
     @Param('id') conversationId: string,
-    @Body() body: { userIds: string[] },
+    @Body() body: AddGroupMembersDto,
   ) {
     return await this.chatsService.addGroupMembers(
       userId,
@@ -162,7 +151,7 @@ export class ChatsController {
     @CurrentUserId() actorId: string,
     @Param('id') conversationId: string,
     @Param('userId') targetUserId: string,
-    @Body() body: { role: string },
+    @Body() body: UpdateMemberRoleDto,
   ) {
     return await this.chatsService.updateMemberRole(
       actorId,
