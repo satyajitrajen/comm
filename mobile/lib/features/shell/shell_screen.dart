@@ -5,44 +5,46 @@ import '../../core/auth_notifier.dart';
 import '../../core/permissions.dart';
 import '../../core/socket_client.dart';
 import '../../widgets/common.dart';
-import '../activity/activity_screen.dart';
-import '../calls/calls_screen.dart';
-import '../chat/chat_lists.dart';
-import '../home/home_screen.dart';
 
 class ShellScreen extends ConsumerStatefulWidget {
-  const ShellScreen({super.key, required this.index});
-  final int index;
+  const ShellScreen({super.key, required this.shell});
+  final StatefulNavigationShell shell;
   @override
   ConsumerState<ShellScreen> createState() => _ShellScreenState();
 }
 
 class _ShellScreenState extends ConsumerState<ShellScreen> {
+  static const _branches = <({int branch, String key, String label, IconData icon})>[
+    (branch: 0, key: 'home', label: 'Home', icon: Icons.home_outlined),
+    (branch: 1, key: 'teams', label: 'Teams', icon: Icons.groups_outlined),
+    (branch: 2, key: 'dms', label: 'Chats', icon: Icons.chat_bubble_outline_rounded),
+    (branch: 3, key: 'calls', label: 'Calls', icon: Icons.call_outlined),
+    (branch: 4, key: 'activity', label: 'Activity', icon: Icons.notifications_outlined),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
     final socketStatus = ref.watch(socketStatusProvider);
-    final pages = <({int i, String key, String label, IconData icon, Widget page})>[
-      (i: 0, key: 'home', label: 'Home', icon: Icons.home_outlined, page: const HomeScreen()),
-      (i: 1, key: 'teams', label: 'Teams', icon: Icons.groups_outlined, page: const TeamsListScreen()),
-      (i: 2, key: 'dms', label: 'Chats', icon: Icons.chat_bubble_outline_rounded, page: const DmsListScreen()),
-      (i: 3, key: 'calls', label: 'Calls', icon: Icons.call_outlined, page: const CallsScreen()),
-      (i: 4, key: 'activity', label: 'Activity', icon: Icons.notifications_outlined, page: const ActivityScreen()),
-    ].where((e) => navKeyAllowed(e.key, user)).toList();
+    final visible =
+        _branches.where((e) => navKeyAllowed(e.key, user)).toList();
 
-    if (pages.isEmpty) {
+    if (visible.isEmpty) {
       return const Scaffold(body: EmptyState(message: 'No modules available'));
     }
 
-    final safeIndex = widget.index.clamp(0, pages.length - 1);
-    final destinations = pages
+    final currentBranch = widget.shell.currentIndex;
+    final selectedIndex =
+        visible.indexWhere((e) => e.branch == currentBranch).clamp(0, visible.length - 1);
+    final destinations = visible
         .map((e) => NavigationDestination(icon: Icon(e.icon), label: e.label))
         .toList();
 
     return Scaffold(
       body: Stack(
         children: [
-          pages[safeIndex].page,
+          // The shell is an IndexedStack: branch state survives tab switches.
+          widget.shell,
           if (socketStatus == SocketStatus.reconnecting)
             const Align(
               alignment: Alignment.topCenter,
@@ -62,10 +64,14 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: safeIndex,
+        selectedIndex: selectedIndex,
         destinations: destinations,
         onDestinationSelected: (i) {
-          context.go('/${pages[i].key}');
+          final target = visible[i].branch;
+          widget.shell.goBranch(
+            target,
+            initialLocation: target == currentBranch,
+          );
         },
       ),
       floatingActionButton: FloatingActionButton.extended(

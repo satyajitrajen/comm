@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/call_permissions.dart';
 import 'call_controller.dart';
 
 /// Fullscreen Outgoing Calling Screen matching the reference design:
@@ -284,6 +285,7 @@ class IncomingCallOverlay extends ConsumerStatefulWidget {
 class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   Timer? _hapticTimer;
   AudioPlayer? _player;
+  Timer? _ringTimeoutTimer;
 
   @override
   void initState() {
@@ -293,6 +295,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     _hapticTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
       if (mounted) {
         HapticFeedback.heavyImpact();
+      }
+    });
+    // Stop ringing (and dismiss the overlay) if the caller hangs up silently
+    // or the ring window lapses without an answer.
+    _ringTimeoutTimer = Timer(const Duration(seconds: 45), () {
+      if (mounted) {
+        ref.read(callControllerProvider.notifier).dismissIncoming();
       }
     });
   }
@@ -310,6 +319,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   @override
   void dispose() {
     _hapticTimer?.cancel();
+    _ringTimeoutTimer?.cancel();
     _player?.stop();
     _player?.dispose();
     super.dispose();
@@ -476,10 +486,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           GestureDetector(
-                            onTap: () {
+                            onTap: () async {
                               _player?.stop();
                               _hapticTimer?.cancel();
                               HapticFeedback.heavyImpact();
+                              if (!await ensureCallPermissions(context)) return;
+                              if (!mounted) return;
                               ref.read(callControllerProvider.notifier).accept();
                             },
                             child: Container(

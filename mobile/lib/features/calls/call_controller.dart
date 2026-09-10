@@ -149,6 +149,7 @@ class CallController extends Notifier<CallUiState> {
       callerName: incoming.callerName,
       conversationName: incoming.conversationName,
       conversationId: incoming.conversationId,
+      conversationType: incoming.conversationType,
     );
   }
 
@@ -179,6 +180,7 @@ class CallController extends Notifier<CallUiState> {
       callerName: incoming.callerName,
       conversationName: incoming.conversationName,
       conversationId: incoming.conversationId,
+      conversationType: incoming.conversationType,
     );
   }
 

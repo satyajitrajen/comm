@@ -1,0 +1,7 @@
+# Copy this file to android/key.properties and fill in real values.
+# The keystore file path is resolved relative to the android/ directory.
+# NEVER commit key.properties or the .jks/.keystore file.
+storeFile=../teamtime-release-key.jks
+storePassword=YOUR_STORE_PASSWORD
+keyAlias=teamtime
+keyPassword=YOUR_KEY_PASSWORD

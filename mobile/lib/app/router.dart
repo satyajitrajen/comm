@@ -3,10 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../core/auth_notifier.dart';
 import '../core/permissions.dart';
+import '../features/activity/activity_screen.dart';
 import '../features/auth/auth_screens.dart';
+import '../features/calls/calls_screen.dart';
 import '../features/calendar/events_screen.dart';
+import '../features/chat/chat_lists.dart';
 import '../features/chat/conversation_screen.dart';
 import '../features/files/files_screen.dart';
+import '../features/home/home_screen.dart';
 import '../features/people/people_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/shell/shell_screen.dart';
@@ -57,11 +61,26 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/forgot-password', builder: (_, _) => const ForgotPasswordScreen()),
       GoRoute(path: '/reset-password', builder: (_, _) => const ResetPasswordScreen()),
-      GoRoute(path: '/home', builder: (_, _) => const ShellScreen(index: 0)),
-      GoRoute(path: '/teams', builder: (_, _) => const ShellScreen(index: 1)),
-      GoRoute(path: '/dms', builder: (_, _) => const ShellScreen(index: 2)),
-      GoRoute(path: '/calls', builder: (_, _) => const ShellScreen(index: 3)),
-      GoRoute(path: '/activity', builder: (_, _) => const ShellScreen(index: 4)),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, shell) => ShellScreen(shell: shell),
+        branches: [
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
+          ]),
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/teams', builder: (_, _) => const TeamsListScreen()),
+          ]),
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/dms', builder: (_, _) => const DmsListScreen()),
+          ]),
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/calls', builder: (_, _) => const CallsScreen()),
+          ]),
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/activity', builder: (_, _) => const ActivityScreen()),
+          ]),
+        ],
+      ),
       GoRoute(path: '/files', builder: (_, _) => const FilesScreen()),
       GoRoute(path: '/people', builder: (_, _) => const PeopleScreen()),
       GoRoute(path: '/events', builder: (_, _) => const EventsScreen()),

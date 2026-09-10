@@ -17,11 +17,12 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final override = await _session.apiOverride;
-          if (override != null &&
-              override.isNotEmpty &&
-              (!kReleaseMode || override.startsWith('https://'))) {
-            options.baseUrl = override;
+          // Dev-only API override; never redirects traffic in release builds.
+          if (kDebugMode) {
+            final override = await _session.apiOverride;
+            if (override != null && override.isNotEmpty) {
+              options.baseUrl = override;
+            }
           }
           final skip = options.headers['X-Skip-Auth-Refresh'] == '1';
           if (!skip) {

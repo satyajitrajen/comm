@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../../core/api_client.dart';
 import '../../core/auth_notifier.dart';
+import '../../core/call_permissions.dart';
 import '../../core/config.dart';
 import '../../core/file_downloader.dart';
 import '../../core/socket_client.dart';
@@ -39,6 +43,8 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   String? _nextCursor;
   bool _hasMore = false;
   String? _replyToId;
+  List<bool> _callActiveFlags = const [];
+  bool _activeCall = false;
 
   String? get _me => ref.read(authProvider).user?['id'] as String?;
 
@@ -132,6 +138,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       if (data['isEdited'] != null) merged['isEdited'] = data['isEdited'];
       if (data['updatedAt'] != null) merged['updatedAt'] = data['updatedAt'];
       _messages[i] = merged;
+      _recomputeCallFlags();
     });
   }
 
@@ -150,6 +157,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       } else {
         _messages.removeAt(i);
       }
+      _recomputeCallFlags();
     });
   }
 
@@ -180,6 +188,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       } else {
         _messages.add(msg);
       }
+      _recomputeCallFlags();
     });
   }
 
@@ -204,6 +213,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ..clear()
             ..addAll(mapped);
         }
+        _recomputeCallFlags();
         _hasMore = data['hasMore'] == true;
         _nextCursor = data['nextCursor'] as String?;
         _loading = false;
@@ -351,49 +361,43 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         );
   }
 
-  bool _hasActiveCall() {
-    for (int i = _messages.length - 1; i >= 0; i--) {
-      final msg = _messages[i];
-      final type = (msg['messageType'] as String? ?? '').toUpperCase();
-      final text = (msg['content'] as String? ?? '').toLowerCase();
+  bool _hasActiveCall() => _activeCall;
 
-      if (type == 'SYSTEM_CALL_START' || text.contains('started a video call')) {
-        return true;
-      }
-      if (type == 'SYSTEM_CALL_END' ||
-          type == 'SYSTEM_CALL_DECLINE' ||
-          text.contains('ended the video call') ||
-          text.contains('cancelled the call') ||
-          text.contains('declined')) {
-        return false;
-      }
+  bool _isCallStartEvent(Map<String, dynamic> msg) {
+    final type = (msg['messageType'] as String? ?? '').toUpperCase();
+    final text = (msg['content'] as String? ?? '').toLowerCase();
+    return type == 'SYSTEM_CALL_START' || text.contains('started a video call');
+  }
+
+  bool _isCallEndEvent(Map<String, dynamic> msg) {
+    final type = (msg['messageType'] as String? ?? '').toUpperCase();
+    final text = (msg['content'] as String? ?? '').toLowerCase();
+    return type == 'SYSTEM_CALL_END' ||
+        type == 'SYSTEM_CALL_DECLINE' ||
+        text.contains('ended the video call') ||
+        text.contains('cancelled the call') ||
+        text.contains('declined');
+  }
+
+  /// Recomputed once per message-list mutation so build() reads flags in O(1)
+  /// instead of rescanning the history for call start/end markers.
+  void _recomputeCallFlags() {
+    final flags = List<bool>.filled(_messages.length, false);
+    var terminatedAfter = false;
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final msg = _messages[i];
+      final isStart = _isCallStartEvent(msg);
+      if (isStart && !terminatedAfter) flags[i] = true;
+      if (isStart || _isCallEndEvent(msg)) terminatedAfter = true;
     }
-    return false;
+    _callActiveFlags = flags;
+    _activeCall = flags.contains(true);
   }
 
   bool _isCallStartActive(int messageIndex) {
-    final msg = _messages[messageIndex];
-    final type = (msg['messageType'] as String? ?? '').toUpperCase();
-    final content = (msg['content'] as String? ?? '').toLowerCase();
-    final isStart = type == 'SYSTEM_CALL_START' || content.contains('started a video call');
-    if (!isStart) return false;
-
-    for (int j = messageIndex + 1; j < _messages.length; j++) {
-      final next = _messages[j];
-      final nextType = (next['messageType'] as String? ?? '').toUpperCase();
-      final nextText = (next['content'] as String? ?? '').toLowerCase();
-
-      if (nextType == 'SYSTEM_CALL_END' ||
-          nextType == 'SYSTEM_CALL_DECLINE' ||
-          nextType == 'SYSTEM_CALL_START' ||
-          nextText.contains('ended the video call') ||
-          nextText.contains('cancelled the call') ||
-          nextText.contains('declined') ||
-          nextText.contains('started a video call')) {
-        return false;
-      }
-    }
-    return true;
+    return messageIndex >= 0 &&
+        messageIndex < _callActiveFlags.length &&
+        _callActiveFlags[messageIndex];
   }
 
   Widget _buildActiveCallBanner() {
@@ -477,7 +481,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         actions: [
           IconButton(
             tooltip: activeCall ? 'Join ongoing call' : 'Start call',
-            onPressed: () {
+            onPressed: () async {
+              if (!await ensureCallPermissions(context)) return;
+              if (!mounted) return;
               if (activeCall) {
                 _joinActiveCall();
               } else {
@@ -662,6 +668,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
 
   void _viewFullImage(String url, String filename) {
+    final api = ref.read(apiClientProvider);
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -677,7 +684,6 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   tooltip: 'Download image',
                   icon: const Icon(Icons.download_rounded, color: Colors.white, size: 28),
                   onPressed: () {
-                    final api = ref.read(apiClientProvider);
                     FileDownloader.downloadAndOpen(
                       context,
                       filename: filename,
@@ -692,24 +698,55 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 ),
               ],
             ),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: InteractiveViewer(
-                child: Image.network(
-                  url,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => Container(
+            FutureBuilder<Uint8List?>(
+              future: _fetchImageBytes(api, url),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return Container(
+                    height: 220,
+                    alignment: Alignment.center,
+                    child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  );
+                }
+                final bytes = snapshot.data;
+                if (bytes == null || bytes.isEmpty) {
+                  return Container(
                     padding: const EdgeInsets.all(24),
-                    color: Colors.white,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     child: Text('Failed to load $filename'),
+                  );
+                }
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: InteractiveViewer(
+                    child: Image.memory(
+                      bytes,
+                      fit: BoxFit.contain,
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<Uint8List?> _fetchImageBytes(ApiClient api, String url) async {
+    try {
+      final res = await api.dio.get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = res.data;
+      return data == null ? null : Uint8List.fromList(data);
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _renderAttachment(Map<String, dynamic> a, bool mine) {
@@ -736,27 +773,24 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             onTap: () => _viewFullImage(viewUrl, filename),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 220, maxWidth: 280),
-              child: Image.network(
-                viewUrl,
+              child: AuthImage(
+                fileId: fileId,
                 fit: BoxFit.cover,
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return Container(
-                    height: 140,
-                    width: 200,
-                    color: mine ? Colors.white12 : const Color(0xFFF1F5F9),
-                    child: const Center(
-                      child: SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+                memCacheWidth: 560,
+                placeholder: (context) => Container(
+                  height: 140,
+                  width: 200,
+                  color: mine ? Colors.white12 : const Color(0xFFF1F5F9),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) {
-                  return _fileCard(filename, fileSize, mimeType, mine, fileId);
-                },
+                  ),
+                ),
+                errorWidget: (context) =>
+                    _fileCard(filename, fileSize, mimeType, mine, fileId),
               ),
             ),
           ),

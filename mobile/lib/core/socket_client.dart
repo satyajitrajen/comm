@@ -19,6 +19,10 @@ class TeamTimeSocket {
   final List<void Function(io.Socket socket)> _binders = [];
   io.Socket? _socket;
   bool _disposed = false;
+  bool _connecting = false;
+  int _serverDisconnectRetries = 0;
+  Timer? _reconnectTimer;
+  static const _maxServerDisconnectRetries = 5;
 
   io.Socket? get socket => _socket;
 
@@ -38,12 +42,15 @@ class TeamTimeSocket {
 
   Future<io.Socket?> connect() async {
     if (_disposed) return null;
-    if (_socket != null && _socket!.connected) {
-      return _socket;
+    final existing = _socket;
+    if (existing != null && (existing.connected || _connecting)) {
+      return existing;
     }
+    _connecting = true;
     _setStatus(SocketStatus.connecting);
     final token = await tokenProvider();
     if (token == null || _disposed) {
+      _connecting = false;
       _setStatus(SocketStatus.disconnected);
       return null;
     }
@@ -58,15 +65,18 @@ class TeamTimeSocket {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
-          .setReconnectionAttempts(double.infinity)
+          .setReconnectionAttempts(10)
           .setReconnectionDelay(1000)
-          .setReconnectionDelayMax(10000)
+          .setReconnectionDelayMax(15000)
+          .setRandomizationFactor(0.2)
           .setAuth({'token': token})
           .build(),
     );
     _socket = socket;
 
     socket.on('connect', (_) {
+      _connecting = false;
+      _serverDisconnectRetries = 0;
       _setStatus(SocketStatus.connected);
       for (final binder in List.of(_binders)) {
         if (!_disposed && _socket == socket) {
@@ -80,11 +90,10 @@ class TeamTimeSocket {
     });
 
     socket.on('disconnect', (reason) {
+      _connecting = false;
       _setStatus(SocketStatus.disconnected);
-      if (reason == 'io server disconnect' && !_disposed) {
-        Future.delayed(const Duration(seconds: 2), () {
-          if (!_disposed) connect();
-        });
+      if (reason == 'io server disconnect' && !_disposed && _socket == socket) {
+        _scheduleServerDisconnectReconnect();
       }
     });
 
@@ -106,7 +115,23 @@ class TeamTimeSocket {
     });
 
     socket.connect();
+    _connecting = false;
     return socket;
+  }
+
+  /// The server force-disconnects on auth failure; retrying unguarded here
+  /// would loop forever with an expired token, so this is capped and backed
+  /// off. A successful connect resets the counter.
+  void _scheduleServerDisconnectReconnect() {
+    if (_serverDisconnectRetries >= _maxServerDisconnectRetries) {
+      return;
+    }
+    _serverDisconnectRetries++;
+    _reconnectTimer?.cancel();
+    final delay = Duration(seconds: 3 * _serverDisconnectRetries);
+    _reconnectTimer = Timer(delay, () {
+      if (!_disposed) connect();
+    });
   }
 
   void _setStatus(SocketStatus status) {
@@ -123,6 +148,7 @@ class TeamTimeSocket {
   }
 
   void disconnect() {
+    _reconnectTimer?.cancel();
     _socket?.disconnect();
     _setStatus(SocketStatus.disconnected);
   }
@@ -130,6 +156,7 @@ class TeamTimeSocket {
   void dispose() {
     _disposed = true;
     _binders.clear();
+    _reconnectTimer?.cancel();
     _socket?.dispose();
     _socket = null;
   }

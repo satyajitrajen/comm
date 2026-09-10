@@ -21,6 +21,10 @@ class _TeamTimeAppState extends ConsumerState<TeamTimeApp> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    setCallNotificationHandlers(
+      onDecline: () => ref.read(callControllerProvider.notifier).decline(),
+      onAccept: () => ref.read(callControllerProvider.notifier).accept(),
+    );
     Future.microtask(() async {
       await initLocalNotifications();
       if (ref.read(authProvider).isLoggedIn) {
@@ -44,6 +48,13 @@ class _TeamTimeAppState extends ConsumerState<TeamTimeApp> with WidgetsBindingOb
         final api = ref.read(apiClientProvider);
         registerAndroidPush(api);
       }
+      // A call accepted from the notification while backgrounded routes here.
+      Future.microtask(() async {
+        final route = await consumePendingCallAcceptRoute();
+        if (route != null && ref.read(authProvider).isLoggedIn) {
+          ref.read(routerProvider).go(route);
+        }
+      });
     }
   }
 
