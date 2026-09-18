@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileUp,
+  Info,
   KeyRound,
   RefreshCw,
   Save,
@@ -14,6 +15,7 @@ import {
   Settings,
   ShieldCheck,
   UserCheck,
+  UserCircle2,
   UserPlus,
   Users,
   UserX,
@@ -23,6 +25,8 @@ import {
 import { adminAPI } from '../../../services/api';
 import Portal from '../../components/Portal';
 import PasswordInput from '../../components/PasswordInput';
+import ProfileSettings from '../../components/ProfileSettings';
+import { version as WEB_APP_VERSION } from '../../../../package.json';
 import {
   CAPABILITY_KEYS,
   CAPABILITY_LABELS,
@@ -77,6 +81,8 @@ type ApprovalSettings = {
   autoApproveAdmins: boolean;
   escalationHours: number;
 };
+
+type SettingsTab = 'profile' | 'users' | 'approval' | 'roles' | 'about';
 
 const ROLE_OPTIONS = ['OWNER', 'ADMIN', 'MANAGER', 'MEMBER', 'GUEST'];
 const APPROVER_ROLE_OPTIONS = ['OWNER', 'ADMIN', 'MANAGER'];
@@ -145,7 +151,7 @@ function formatLastSeen(value?: string | null): string {
 }
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'users' | 'approval' | 'roles'>('users');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [approvalDraft, setApprovalDraft] = useState<ApprovalSettings | null>(null);
   const [roleDraft, setRoleDraft] = useState<RolePermissionsMap | null>(null);
@@ -523,79 +529,95 @@ export default function SettingsPage() {
     }
   }
 
-  const canManageAdmin =
-    canManageUsers || canManageSettings || canManageRoles || canImportUsers;
+  const sections = [
+    { key: 'profile', label: 'Profile', icon: UserCircle2, visible: true },
+    { key: 'users', label: 'Users', icon: Users, visible: canManageUsers || canImportUsers },
+    { key: 'approval', label: 'Approval cycle', icon: ShieldCheck, visible: canManageSettings },
+    { key: 'roles', label: 'Roles & permissions', icon: KeyRound, visible: canManageRoles || canManageSettings },
+    { key: 'about', label: 'About', icon: Info, visible: true },
+  ] as const;
+  const activeSection = sections.find((section) => section.key === activeTab && section.visible) ?? sections[0];
+  const isWorkspaceSection = activeSection.key !== 'profile' && activeSection.key !== 'about';
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-slate-50">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
-        <div className="flex items-center gap-3">
-          <Settings className="h-5 w-5 text-blue-700" />
-          <div>
-            <h1 className="text-lg font-bold text-slate-950">Settings</h1>
-            <p className="text-xs text-slate-500">
-              {canManageAdmin ? 'Workspace administration' : 'Workspace settings'}
-            </p>
-          </div>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50">
+      <header className="flex h-20 shrink-0 items-center gap-3 px-4 sm:px-6">
+        <Settings className="h-5 w-5 text-slate-500" />
+        <div>
+          <h1 className="text-lg font-semibold text-slate-950">Settings</h1>
+          <p className="mt-0.5 text-xs text-slate-500">Manage your account and workspace.</p>
         </div>
-        {canManageAdmin && (
-          <button
-            onClick={loadSettings}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
-        )}
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <main className="min-w-0 flex-1 overflow-y-auto p-6">
-          {error && (
-            <div className="mb-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              <span>{error}</span>
-              <button onClick={loadSettings} className="font-semibold hover:text-red-900">
-                Retry
+      <div className="mx-3 mb-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white sm:mx-6 sm:mb-6 sm:flex-row">
+        <nav
+          aria-label="Settings sections"
+          className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-100 p-3 sm:w-52 sm:flex-col sm:overflow-y-auto sm:border-b-0 sm:border-r sm:py-6"
+        >
+          {sections.filter((section) => section.visible).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              aria-current={activeSection.key === key ? 'page' : undefined}
+              aria-controls="settings-content"
+              onClick={() => setActiveTab(key)}
+              className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-3 text-left text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                activeSection.key === key
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+              } ${key === 'about' ? 'sm:mt-5' : ''}`}
+            >
+              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {label}
+            </button>
+          ))}
+        </nav>
+        <main id="settings-content" aria-labelledby="settings-section-title" className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <div className="mb-6 flex items-center justify-between gap-3">
+            <h2 id="settings-section-title" className="text-base font-semibold text-slate-950">{activeSection.label}</h2>
+            {isWorkspaceSection && (
+              <button
+                type="button"
+                onClick={loadSettings}
+                disabled={loading}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
               </button>
+            )}
+          </div>
+
+          {activeSection.key === 'profile' ? (
+            <ProfileSettings className="w-full" />
+          ) : activeSection.key === 'about' ? (
+            <section className="w-full">
+              <img src="/teamtime.png" alt="TeamTime logo" width={240} height={107} className="mb-6 h-auto w-60 max-w-full object-contain" />
+              <h3 className="text-lg font-semibold text-slate-950">TeamTime</h3>
+              <p className="mt-2 text-sm leading-7 text-slate-500">
+                Team communication for messaging, calls, files, tasks, and calendars — one workspace for your organization.
+              </p>
+              <dl className="mt-8 divide-y divide-slate-100 border-y border-slate-100 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 py-5">
+                  <dt className="text-slate-500">Web version</dt>
+                  <dd className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{WEB_APP_VERSION}</dd>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 py-5">
+                  <dt className="text-slate-500">Application</dt>
+                  <dd className="font-medium text-slate-800">TeamTime Web</dd>
+                </div>
+              </dl>
+            </section>
+          ) : (
+          <>
+          {error && (
+            <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <span>{error}</span>
+              <button onClick={loadSettings} className="font-semibold hover:text-red-900">Retry</button>
             </div>
           )}
-
-          {canManageAdmin ? (
-          <>
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex rounded-lg border border-slate-200 bg-white p-1">
-              <button
-                onClick={() => setActiveTab('users')}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${
-                  activeTab === 'users' ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <Users className="h-4 w-4" />
-                Users
-              </button>
-              <button
-                onClick={() => setActiveTab('approval')}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${
-                  activeTab === 'approval' ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <ShieldCheck className="h-4 w-4" />
-                Approval cycle
-              </button>
-              {(canManageRoles || canManageSettings) && (
-                <button
-                  onClick={() => setActiveTab('roles')}
-                  className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${
-                    activeTab === 'roles' ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <KeyRound className="h-4 w-4" />
-                  Roles & permissions
-                </button>
-              )}
-            </div>
-
-            {activeTab === 'users' ? (
+          {activeTab === 'users' && (
+            <div className="mb-5">
               <div className="flex flex-wrap items-center gap-2">
                 {/* Total */}
                 <div
@@ -639,8 +661,8 @@ export default function SettingsPage() {
                   <span className="text-xs font-semibold text-blue-700">admins</span>
                 </div>
               </div>
-            ) : null}
-          </div>
+            </div>
+          )}
 
           {activeTab === 'users' ? (
             <section>
@@ -847,7 +869,7 @@ export default function SettingsPage() {
               </div>
             </section>
           ) : activeTab === 'approval' ? (
-            <section className="max-w-3xl">
+            <section className="w-full">
               <div className="rounded-lg border border-slate-200 bg-white p-5">
                 {loading ? (
                   <div className="text-sm text-slate-500">Loading approval cycle...</div>
@@ -952,7 +974,7 @@ export default function SettingsPage() {
               </div>
             </section>
           ) : (
-            <section className="max-w-5xl">
+            <section className="w-full">
               <div className="rounded-lg border border-slate-200 bg-white p-5">
                 <p className="mb-4 text-sm text-slate-600">
                   Role defaults apply to all users unless overridden on People.
@@ -1057,14 +1079,6 @@ export default function SettingsPage() {
             </section>
           )}
           </>
-          ) : (
-            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
-              <ShieldCheck className="mx-auto h-10 w-10 text-slate-400 mb-3" />
-              <h2 className="text-base font-bold text-slate-800">Workspace Administration</h2>
-              <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
-                Workspace settings and member management are restricted to workspace administrators.
-              </p>
-            </div>
           )}
         </main>
       </div>

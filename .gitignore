@@ -53,3 +53,4 @@ run-dev.bat
 run-dev.ps1
 start-process-test.txt
 node-test.*.log
+backend/prisma/generated/
