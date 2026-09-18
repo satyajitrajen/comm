@@ -44,6 +44,8 @@ const PLAN: { model: string; table: string }[] = [
   { model: 'messageRead', table: 'MessageRead' },
   { model: 'messageDelivery', table: 'MessageDelivery' },
   { model: 'messageReaction', table: 'MessageReaction' },
+  // File must precede MessageAttachment (MessageAttachment.fileId -> File.id)
+  { model: 'file', table: 'File' },
   { model: 'messageAttachment', table: 'MessageAttachment' },
   { model: 'messageDeletion', table: 'MessageDeletion' },
   { model: 'pinnedMessage', table: 'PinnedMessage' },
@@ -53,7 +55,6 @@ const PLAN: { model: string; table: string }[] = [
   { model: 'pollVote', table: 'PollVote' },
   { model: 'task', table: 'Task' },
   { model: 'taskAssignee', table: 'TaskAssignee' },
-  { model: 'file', table: 'File' },
   { model: 'calendarEvent', table: 'CalendarEvent' },
   { model: 'eventAttendee', table: 'EventAttendee' },
   { model: 'appIntegration', table: 'AppIntegration' },
