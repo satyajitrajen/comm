@@ -7,8 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
-RUN npm run build
+# Generate the client before building: without a schema-generated client,
+# TS types like createMany skipDuplicates resolve to never and nest build fails.
 RUN npx prisma generate
+RUN npm run build
 
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
