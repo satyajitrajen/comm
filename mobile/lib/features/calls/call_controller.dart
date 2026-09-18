@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -64,11 +65,13 @@ class CallUiState {
     this.incoming,
     this.outgoing,
     this.inCall = false,
+    this.callNotice,
   });
 
   final IncomingCall? incoming;
   final OutgoingCall? outgoing;
   final bool inCall;
+  final String? callNotice;
 
   String? get outgoingName => outgoing?.contactName;
 
@@ -76,35 +79,56 @@ class CallUiState {
     IncomingCall? incoming,
     OutgoingCall? outgoing,
     bool? inCall,
+    String? callNotice,
+    bool clearNotice = false,
   }) {
     return CallUiState(
       incoming: incoming ?? this.incoming,
       outgoing: outgoing ?? this.outgoing,
       inCall: inCall ?? this.inCall,
+      callNotice: clearNotice ? null : (callNotice ?? this.callNotice),
     );
   }
 }
 
-class CallController extends Notifier<CallUiState> {
-  final _jitsi = JitsiMeet();
+class CallController extends Notifier<CallUiState> with WidgetsBindingObserver {
+  JitsiMeet _jitsi = JitsiMeet();
   io.Socket? _socket;
   void Function()? _unbind;
   Timer? _outgoingTimeoutTimer;
+  Timer? _noticeTimer;
 
   @override
   CallUiState build() {
+    _jitsi = ref.read(jitsiProvider);
     final client = ref.watch(socketClientProvider);
     _unbind?.call();
     _detach(_socket);
     _socket = null;
     _unbind = client.onSocket(_attach);
+    WidgetsBinding.instance.addObserver(this);
     ref.onDispose(() {
       _outgoingTimeoutTimer?.cancel();
+      _noticeTimer?.cancel();
       _unbind?.call();
       _detach(_socket);
       _socket = null;
+      WidgetsBinding.instance.removeObserver(this);
     });
     return const CallUiState();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      final cid = _activeConversationId;
+      final rname = _activeRoomName;
+      if (cid != null) {
+        final payload = <String, dynamic>{'conversationId': cid};
+        if (rname != null) payload['roomName'] = rname;
+        _socket?.emit('call.end', payload);
+      }
+    }
   }
 
   void _detach(io.Socket? socket) {
@@ -114,7 +138,9 @@ class CallController extends Notifier<CallUiState> {
       ..off('call.accepted', _onAccepted)
       ..off('call.declined', _onDeclined)
       ..off('call.ended', _onEnded)
-      ..off('call.cancelled', _onCancelled);
+      ..off('call.cancelled', _onCancelled)
+      ..off('call.escalated', _onEscalated)
+      ..off('call.left', _onLeft);
   }
 
   void _attach(io.Socket socket) {
@@ -126,7 +152,9 @@ class CallController extends Notifier<CallUiState> {
       ..on('call.accepted', _onAccepted)
       ..on('call.declined', _onDeclined)
       ..on('call.ended', _onEnded)
-      ..on('call.cancelled', _onCancelled);
+      ..on('call.cancelled', _onCancelled)
+      ..on('call.escalated', _onEscalated)
+      ..on('call.left', _onLeft);
   }
 
   void _onIncoming(dynamic data) {
@@ -135,9 +163,22 @@ class CallController extends Notifier<CallUiState> {
     final myId = me?['id']?.toString();
     final callerId = '${data['callerId']}';
     if (myId != null && callerId == myId) return;
-    if (state.inCall || state.incoming != null) return;
+    final convId = '${data['conversationId']}';
+
+    if (state.inCall || state.incoming != null) {
+      final sameCall = state.incoming?.conversationId == convId ||
+          state.outgoing?.conversationId == convId;
+      if (!sameCall) {
+        _socket?.emit('call.decline', {
+          'conversationId': convId,
+          'callerId': callerId,
+        });
+      }
+      return;
+    }
+
     final incoming = IncomingCall(
-      conversationId: '${data['conversationId']}',
+      conversationId: convId,
       roomName: '${data['roomName']}',
       callerId: callerId,
       callerName: '${data['callerName']}',
@@ -192,11 +233,14 @@ class CallController extends Notifier<CallUiState> {
   }
 
   void _onAccepted(dynamic data) async {
-    cancelIncomingCallNotification();
+    if (data is! Map) return;
+    final convId = data['conversationId']?.toString();
     final outgoing = state.outgoing;
+    if (outgoing != null && convId != null && convId != outgoing.conversationId) return;
+
+    cancelIncomingCallNotification();
     if (outgoing != null) {
       _outgoingTimeoutTimer?.cancel();
-      // Other person accepted! Now enter Jitsi Meet.
       state = CallUiState(
         outgoing: outgoing.copyWith(status: OutgoingCallStatus.accepted),
         inCall: true,
@@ -207,20 +251,32 @@ class CallController extends Notifier<CallUiState> {
         conversationId: outgoing.conversationId,
         displayName: me?['displayName'] as String?,
       );
-      state = const CallUiState(inCall: true);
+      if (_jitsiActive) state = const CallUiState(inCall: true);
     } else {
       state = const CallUiState();
     }
   }
 
   void _onDeclined(dynamic data) {
-    cancelIncomingCallNotification();
+    if (data is! Map) return;
+    final convId = data['conversationId']?.toString();
+    final declinedByName = data['declinedByName']?.toString();
     final outgoing = state.outgoing;
+    if (outgoing != null && convId != null && convId != outgoing.conversationId) return;
+
+    cancelIncomingCallNotification();
     if (outgoing != null) {
       _outgoingTimeoutTimer?.cancel();
       state = CallUiState(
         outgoing: outgoing.copyWith(status: OutgoingCallStatus.declined),
       );
+      if (declinedByName != null) {
+        _noticeTimer?.cancel();
+        state = state.copyWith(callNotice: 'Call declined by $declinedByName');
+        _noticeTimer = Timer(const Duration(seconds: 4), () {
+          state = state.copyWith(clearNotice: true);
+        });
+      }
       Future.delayed(const Duration(milliseconds: 1600), () {
         if (state.outgoing?.status == OutgoingCallStatus.declined) {
           state = const CallUiState();
@@ -231,20 +287,112 @@ class CallController extends Notifier<CallUiState> {
     }
   }
 
-  void _onEnded(dynamic _) {
+  void _onEnded(dynamic data) {
+    if (data is! Map) return;
+    final convId = data['conversationId']?.toString();
+    if (convId != null &&
+        convId != _activeConversationId &&
+        state.outgoing?.conversationId != convId &&
+        state.incoming?.conversationId != convId) {
+      return;
+    }
+
     _outgoingTimeoutTimer?.cancel();
     cancelIncomingCallNotification();
     state = const CallUiState();
+    _activeConversationId = null;
+    _activeRoomName = null;
+    unawaited(_hangUpIfActive());
   }
 
-  void _onCancelled(dynamic _) {
+  void _onCancelled(dynamic data) {
+    if (data is! Map) return;
+    final convId = data['conversationId']?.toString();
+    if (convId != null &&
+        convId != _activeConversationId &&
+        state.outgoing?.conversationId != convId &&
+        state.incoming?.conversationId != convId) {
+      return;
+    }
+
     _outgoingTimeoutTimer?.cancel();
     cancelIncomingCallNotification();
     state = const CallUiState();
+    _activeConversationId = null;
+    _activeRoomName = null;
+    unawaited(_hangUpIfActive());
+  }
+
+  void _onEscalated(dynamic data) {
+    if (data is! Map) return;
+    final newConvId = data['conversationId']?.toString();
+    final newConvName = data['conversationName']?.toString();
+    final roomName = data['roomName']?.toString();
+    if (newConvId == null) return;
+
+    final outgoing = state.outgoing;
+    if (outgoing != null && (roomName == null || outgoing.roomName == roomName)) {
+      state = state.copyWith(
+        outgoing: outgoing.copyWith(
+          conversationId: newConvId,
+          conversationName: newConvName ?? 'Group Call',
+          contactName: newConvName ?? 'Group Call',
+        ),
+      );
+      _activeConversationId = newConvId;
+      _noticeTimer?.cancel();
+      state = state.copyWith(
+        callNotice: 'Call upgraded to group: ${newConvName ?? 'Group Call'}',
+      );
+      _noticeTimer = Timer(const Duration(seconds: 4), () {
+        state = state.copyWith(clearNotice: true);
+      });
+    }
+
+    // The call is live: the backend reassigned the conversation to a new
+    // GROUP id, so later call.ended/call.cancelled events carry that id.
+    // Track it, otherwise the remote end is ignored and the local Jitsi
+    // conference is stranded. roomName itself is unchanged.
+    if (_jitsiActive || state.inCall) {
+      _activeConversationId = newConvId;
+      if (roomName != null) _activeRoomName = roomName;
+    }
+  }
+
+  void _onLeft(dynamic data) {
+    if (data is! Map) return;
+    final convId = data['conversationId']?.toString();
+    if (convId != null &&
+        convId != _activeConversationId &&
+        state.outgoing?.conversationId != convId &&
+        state.incoming?.conversationId != convId) {
+      return;
+    }
+
+    cancelIncomingCallNotification();
+    state = const CallUiState();
+    _activeConversationId = null;
+    _activeRoomName = null;
+    unawaited(_hangUpIfActive());
   }
 
   String? _activeConversationId;
   String? _activeRoomName;
+  bool _jitsiActive = false;
+
+  Future<void> _hangUpQuietly() async {
+    try {
+      await _jitsi.hangUp();
+    } catch (_) {
+      // Conference already gone or SDK not initialized.
+    }
+  }
+
+  Future<void> _hangUpIfActive() async {
+    if (!_jitsiActive) return;
+    _jitsiActive = false;
+    await _hangUpQuietly();
+  }
 
   Future<void> invite({
     required String conversationId,
@@ -258,7 +406,6 @@ class CallController extends Notifier<CallUiState> {
       'roomName': room,
       'callerName': (me?['displayName'] as String?) ?? 'User',
       'conversationName': conversationName,
-      'conversationType': conversationType,
     });
 
     _outgoingTimeoutTimer?.cancel();
@@ -353,15 +500,23 @@ class CallController extends Notifier<CallUiState> {
   void endCall({String? conversationId, String? roomName}) {
     _outgoingTimeoutTimer?.cancel();
     cancelIncomingCallNotification();
+    final wasActive = _jitsiActive;
+    _jitsiActive = false;
     final cid = conversationId ?? _activeConversationId;
     final rname = roomName ?? _activeRoomName;
-    if (cid != null) {
+    // Only announce the end if a call was actually running; readyToClose and
+    // conferenceTerminated both funnel here, so guard against duplicate emits.
+    final hadCall = wasActive || state.outgoing != null || state.incoming != null;
+    if (cid != null && hadCall) {
       final payload = <String, dynamic>{'conversationId': cid};
       if (rname != null) payload['roomName'] = rname;
       _socket?.emit('call.end', payload);
     }
     _activeConversationId = null;
     _activeRoomName = null;
+    if (wasActive) {
+      unawaited(_hangUpQuietly());
+    }
     state = const CallUiState();
   }
 
@@ -372,12 +527,35 @@ class CallController extends Notifier<CallUiState> {
   }) async {
     _activeRoomName = roomName;
     _activeConversationId = conversationId;
+    // Mirrors the web client's Jitsi options (frontend VideoCallModal): no
+    // pre-join page, leaving never ends the conference for others, no
+    // invite/calendar/recording UI, minimal chrome.
     final options = JitsiMeetConferenceOptions(
       serverURL: 'https://${AppConfig.jitsiServer}',
       room: roomName,
       configOverrides: {
         'startWithAudioMuted': false,
         'startWithVideoMuted': false,
+        'prejoinPageEnabled': false,
+        'prejoinConfig': {'enabled': false},
+        'hideConferenceSubject': true,
+        'hideConferenceTimer': true,
+        'hideRecordingLabel': true,
+        'disableDeepLinking': true,
+        'enableEndConference': false,
+        'enableLeaveUserReason': false,
+      },
+      featureFlags: {
+        FeatureFlags.welcomePageEnabled: false,
+        FeatureFlags.preJoinPageEnabled: false,
+        FeatureFlags.calenderEnabled: false,
+        FeatureFlags.inviteEnabled: false,
+        FeatureFlags.addPeopleEnabled: false,
+        FeatureFlags.recordingEnabled: false,
+        FeatureFlags.liveStreamingEnabled: false,
+        FeatureFlags.serverUrlChangeEnabled: false,
+        FeatureFlags.unsafeRoomWarningEnabled: false,
+        FeatureFlags.toolboxAlwaysVisible: true,
       },
       userInfo: JitsiMeetUserInfo(displayName: displayName ?? 'User'),
     );
@@ -385,9 +563,24 @@ class CallController extends Notifier<CallUiState> {
       conferenceTerminated: (url, error) {
         endCall();
       },
+      readyToClose: () {
+        endCall();
+      },
     );
-    await _jitsi.join(options, listener);
+    _jitsiActive = true;
+    try {
+      await _jitsi.join(options, listener);
+    } catch (_) {
+      // Join failed (init error, permissions, server unreachable): don't leave
+      // the app stuck in the inCall state with no Jitsi UI.
+      _jitsiActive = false;
+      _activeRoomName = null;
+      _activeConversationId = null;
+      state = const CallUiState();
+    }
   }
 }
+
+final jitsiProvider = Provider<JitsiMeet>((ref) => JitsiMeet());
 
 final callControllerProvider = NotifierProvider<CallController, CallUiState>(CallController.new);

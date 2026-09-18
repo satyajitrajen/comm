@@ -7,6 +7,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/call_permissions.dart';
 import 'call_controller.dart';
 
+/// Transient call notice (e.g. "Call declined by X", "Call upgraded to group").
+/// Renders nothing when there is no active notice.
+class CallNoticeBanner extends ConsumerWidget {
+  const CallNoticeBanner({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notice =
+        ref.watch(callControllerProvider.select((s) => s.callNotice));
+    if (notice == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Text(
+        notice,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.85),
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
+
 /// Fullscreen Outgoing Calling Screen matching the reference design:
 /// deep purple-indigo ambient gradient, dynamic timer, contact headline,
 /// smiley face visualizer with animated audio waveform, and bottom action buttons (Speaker, End, Mute).
@@ -179,6 +204,8 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay> {
                     ),
                   ),
                 ),
+
+                const CallNoticeBanner(),
 
                 const SizedBox(height: 24),
 
