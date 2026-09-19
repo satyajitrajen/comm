@@ -804,12 +804,20 @@ export class MessagesService {
       throw new BadRequestException('Failed to forward message');
     }
 
+    // BigInt fields (e.g. File.fileSizeBytes) break notepack encoding used by
+    // the Redis adapter, so coerce them to plain numbers before broadcasting.
+    const broadcastPayload = JSON.parse(
+      JSON.stringify(forwarded, (_key, value) =>
+        typeof value === 'bigint' ? Number(value) : value,
+      ),
+    );
+
     const room = `conversation:${targetConversationId}`;
-    this.realtimeGateway.broadcastToRoom(room, 'message.sent', forwarded);
+    this.realtimeGateway.broadcastToRoom(room, 'message.sent', broadcastPayload);
     void this.realtimeGateway.emitMessageNotifyToParticipants(
       targetConversationId,
       userId,
-      forwarded,
+      broadcastPayload,
     );
 
     return forwarded;
