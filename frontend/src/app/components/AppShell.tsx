@@ -50,7 +50,9 @@ import {
 } from '../../lib/permissions';
 import {
   ensureDesktopConfig,
+  onDesktopForceEndCall,
   sendDesktopNotification,
+  setDesktopUnreadCount,
 } from '../../lib/desktopRuntime';
 import { useBrowserPush } from '../../hooks/useBrowserPush';
 import { unregisterBrowserPush } from '../../lib/push';
@@ -101,6 +103,16 @@ function Avatar({
     </div>
   );
 }
+
+/** Declared availability -> the three states the desktop tray offers. */
+function trayStatusFor(availability?: string | null): 'online' | 'away' | 'dnd' {
+  if (availability === 'DND' || availability === 'BUSY') return 'dnd';
+  if (availability === 'AWAY' || availability === 'OUT_OF_OFFICE') return 'away';
+  return 'online';
+}
+
+/** Tray choice -> declared availability ('' clears the override). */
+const AVAILABILITY_FOR_TRAY: Record<string, string> = { online: '', away: 'AWAY', dnd: 'DND' };
 
 function initialsFor(name?: string | null) {
   return (name?.trim() || 'U')
@@ -267,13 +279,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [activeCall]);
 
   // Listen for desktop "force end call" IPC and end the call gracefully.
+  useEffect(() => onDesktopForceEndCall(() => signalEndCall()), [signalEndCall]);
+
+  // Desktop shell: taskbar badge / overlay / flash follow the unread count.
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.electronAPI?.onForceEndCall) {
-      window.electronAPI.onForceEndCall(() => {
-        signalEndCall();
-      });
-    }
-  }, [signalEndCall]);
+    setDesktopUnreadCount(unreadNotifications);
+  }, [unreadNotifications]);
 
   /**
    * Only warn about a connection that was working and then dropped. Showing it
@@ -358,7 +369,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         },
       });
 
-      sendDesktopNotification(`New message from ${senderName}`, { body: preview });
+      sendDesktopNotification(`New message from ${senderName}`, { body: preview, url: href });
       setUnreadNotifications((n) => n + 1);
     };
 
@@ -380,6 +391,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       });
       sendDesktopNotification(`New Event: ${event.title}`, {
         body: `Invited by ${event.creatorName}`,
+        url: '/calendar',
       });
       setUnreadNotifications((n) => n + 1);
     };
@@ -405,6 +417,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       });
       sendDesktopNotification(`Event Starting Soon: ${event.title}`, {
         body: `Starts at ${formatTime(event.startsAt)} IST`,
+        url: '/calendar',
       });
       setUnreadNotifications((n) => n + 1);
     };
@@ -479,20 +492,29 @@ export default function AppShell({ children }: { children: ReactNode }) {
       localStorage.setItem('veloce_user', JSON.stringify(nextUser));
       setUser(nextUser);
       setShowStatusDropdown(false);
-
-      if (window.electronAPI?.setTrayStatus) {
-        const trayStatus =
-          availability === 'DND' || availability === 'BUSY'
-            ? 'dnd'
-            : availability === 'AWAY'
-              ? 'away'
-              : 'online';
-        window.electronAPI.setTrayStatus(trayStatus);
-      }
+      window.electronAPI?.setTrayStatus?.(trayStatusFor(availability));
     } catch (err) {
       console.error('Failed to update status', err);
     }
   }
+
+  // Desktop tray <-> app status, both directions. The ref keeps the listener
+  // stable while still calling the latest handler.
+  const updateStatusRef = useRef(handleUpdateStatus);
+  updateStatusRef.current = handleUpdateStatus;
+
+  useEffect(() => {
+    const off = window.electronAPI?.onTrayStatusChanged((status) => {
+      const availability = AVAILABILITY_FOR_TRAY[status];
+      if (availability !== undefined) void updateStatusRef.current(availability);
+    });
+    return typeof off === 'function' ? off : undefined;
+  }, []);
+
+  // Start the tray radio on the user's stored status rather than "Online".
+  useEffect(() => {
+    window.electronAPI?.setTrayStatus?.(trayStatusFor(user?.availability));
+  }, [user?.availability]);
 
   async function saveProfile(event: FormEvent) {
     event.preventDefault();

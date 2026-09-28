@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.comm.desktop",
-  "productName": "Comm Desktop",
+  "appId": "live.teamtime.desktop",
+  "productName": "TeamTime",
   "directories": {
     "output": "release"
   },
@@ -15,9 +15,20 @@
       "from": "resources/ui",
       "to": "ui",
       "filter": ["**/*"]
+    },
+    {
+      "from": "resources/icon.png",
+      "to": "icon.png"
+    }
+  ],
+  "protocols": [
+    {
+      "name": "TeamTime",
+      "schemes": ["teamtime"]
     }
   ],
   "win": {
+    "icon": "resources/icon.png",
     "target": [
       {
         "target": "nsis",
@@ -34,6 +45,15 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "Comm Desktop"
+    "shortcutName": "TeamTime"
+  },
+  "mac": {
+    "icon": "resources/icon.png",
+    "category": "public.app-category.business"
+  },
+  "linux": {
+    "icon": "resources/icon.png",
+    "target": ["AppImage"],
+    "category": "Office"
   }
 }

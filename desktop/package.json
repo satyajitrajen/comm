@@ -1,15 +1,17 @@
 {
-  "name": "comm-desktop",
+  "name": "teamtime-desktop",
   "version": "1.0.0",
-  "description": "Electron desktop shell for Comm — loads the Next.js UI in a native window",
+  "description": "TeamTime desktop app — Electron shell serving the bundled Next.js UI",
   "main": "dist-electron/main/index.js",
-  "author": "Comm Team",
+  "author": "TeamTime",
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "app": "vite",
+    "app": "node scripts/ensure-ui.mjs && vite",
+    "build:ui": "node scripts/build-ui.mjs",
     "build": "tsc && vite build && tsc -p tsconfig.node.json",
-    "dist": "npm run build && electron-builder",
+    "dist": "npm run build:ui && npm run build && electron-builder",
+    "dist:skip-ui": "npm run build && electron-builder",
     "preview": "vite preview"
   },
   "dependencies": {},
@@ -20,19 +22,16 @@
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "axios": "^1.7.9",
     "electron": "^34.0.0",
     "electron-builder": "^25.1.8",
-    "lucide-react": "^0.469.0",
     "postcss": "^8.4.49",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "socket.io-client": "^4.8.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6",
-    "zustand": "^5.0.3"
-  }
+    "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "productName": "TeamTime"
 }

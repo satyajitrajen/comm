@@ -2,19 +2,30 @@
 
 import { Minus, Square, X as XIcon } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
-import { ensureDesktopConfig, isElectronDesktop } from '../../lib/desktopRuntime';
+import { useRouter } from 'next/navigation';
+import {
+  ensureDesktopConfig,
+  isElectronDesktop,
+  onDesktopNavigate,
+} from '../../lib/desktopRuntime';
 
 /**
  * Frameless Electron window chrome. Rendered from the root layout so login and
  * other non-AppShell routes still get drag region + window controls.
  */
 export default function DesktopTitleBar() {
+  const router = useRouter();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     setVisible(isElectronDesktop());
     void ensureDesktopConfig();
   }, []);
+
+  // Deep links and notification clicks. Subscribed here rather than in
+  // AppShell so a link opened while signed out still routes: the auth guard
+  // then turns it into /login?next=<target>.
+  useEffect(() => onDesktopNavigate((path) => router.push(path)), [router]);
 
   if (!visible) return null;
 
@@ -49,7 +60,7 @@ export default function DesktopTitleBar() {
         <button
           type="button"
           className="flex h-7 w-10 items-center justify-center rounded text-slate-500 hover:bg-red-500 hover:text-white"
-          title="Close"
+          title="Close (TeamTime keeps running in the tray)"
           onClick={() => window.electronAPI?.closeWindow()}
         >
           <XIcon className="h-3.5 w-3.5" />

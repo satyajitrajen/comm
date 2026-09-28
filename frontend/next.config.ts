@@ -7,6 +7,10 @@ const nextConfig: NextConfig = electronBuild
       output: "export",
       trailingSlash: true,
       images: { unoptimized: true },
+      // desktop/scripts/build-ui.mjs parks src/app/api for this export, and
+      // generated route types (including a running dev server's) still point
+      // at it. The regular build and `tsc --noEmit` type-check the same code.
+      typescript: { ignoreBuildErrors: true },
     }
   : {
       allowedDevOrigins: [

@@ -1,0 +1,10 @@
+name: app_launch_smoke
+description: Verify that TeamTime app launches and displays the splash or sign-in/home screen.
+
+steps:
+  - Launch the app.
+  - Wait 3 seconds for the initial screen to load.
+
+expected_state:
+  - The sign in screen or home screen is visible.
+

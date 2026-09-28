@@ -1,0 +1,4 @@
+app:
+  packageName: live.teamtime.app
+model: google/gemini-2.5-flash
+

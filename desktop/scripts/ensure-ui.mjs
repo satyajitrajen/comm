@@ -20,6 +20,24 @@ function hasUi(dir) {
   );
 }
 
+/** DESKTOP_FRONTEND_URL from the environment or desktop/.env. */
+function frontendOverride() {
+  if (process.env.DESKTOP_FRONTEND_URL?.trim()) return process.env.DESKTOP_FRONTEND_URL.trim();
+  const envFile = path.join(desktopRoot, '.env');
+  if (!fs.existsSync(envFile)) return '';
+  const line = fs
+    .readFileSync(envFile, 'utf8')
+    .split(/\r?\n/)
+    .find((l) => l.trim().startsWith('DESKTOP_FRONTEND_URL='));
+  return line ? line.split('=').slice(1).join('=').trim().replace(/^["']|["']$/g, '') : '';
+}
+
+const override = frontendOverride();
+if (override) {
+  console.log(`[desktop] DESKTOP_FRONTEND_URL=${override} — using the running frontend, no bundle needed`);
+  process.exit(0);
+}
+
 if (hasUi(bundled) || hasUi(exported)) {
   console.log('[desktop] Static UI found — starting Electron (app://, no port)');
   process.exit(0);

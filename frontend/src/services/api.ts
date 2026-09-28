@@ -115,8 +115,14 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   if (typeof window !== 'undefined') {
+    // Desktop: wait for the API URL from Electron before the first request.
+    if (window.electronAPI) {
+      await ensureDesktopConfig();
+      const base = resolveApiBaseUrl();
+      if (base && !config.baseURL) config.baseURL = base;
+    }
     const token = localStorage.getItem('veloce_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

@@ -2,20 +2,34 @@
  * Runtime helpers when the Next.js app is embedded in the Electron desktop shell.
  */
 
+type Unsubscribe = () => void;
+
+/** Mirrors desktop/src/preload/index.ts — keep the two in sync. */
+export type ElectronAPI = {
+  minimizeWindow: () => void;
+  maximizeWindow: () => void;
+  closeWindow: () => void;
+  isMaximized: () => Promise<boolean>;
+  getConfig: () => Promise<{ isDesktop?: true; frontendUrl?: string; apiUrl?: string }>;
+  sendNotification: (
+    title: string,
+    options?: { body?: string; tag?: string; url?: string },
+  ) => void;
+  setTrayStatus: (status: 'online' | 'away' | 'dnd') => void;
+  setUnreadCount?: (count: number) => void;
+  getLoginItem?: () => Promise<boolean>;
+  setLoginItem?: (enabled: boolean) => Promise<boolean>;
+  // Older shells returned void; newer ones return an unsubscribe.
+  onWindowMaximizedState: (callback: (isMaximized: boolean) => void) => Unsubscribe | void;
+  onForceEndCall: (callback: () => void) => Unsubscribe | void;
+  onTrayStatusChanged: (callback: (status: string) => void) => Unsubscribe | void;
+  onNavigate?: (callback: (path: string) => void) => Unsubscribe | void;
+};
+
 declare global {
   interface Window {
-    electronAPI?: {
-      minimizeWindow: () => void;
-      maximizeWindow: () => void;
-      closeWindow: () => void;
-      isMaximized: () => Promise<boolean>;
-      getConfig: () => Promise<{ apiUrl?: string }>;
-      sendNotification: (title: string, options?: { body?: string; tag?: string }) => void;
-      setTrayStatus: (status: 'online' | 'away' | 'dnd') => void;
-      onWindowMaximizedState: (callback: (isMaximized: boolean) => void) => void;
-      onForceEndCall: (callback: () => void) => void;
-      onTrayStatusChanged: (callback: (status: string) => void) => void;
-    };
+    electronAPI?: ElectronAPI;
+    /** Mirrors active-call state for the Electron main process (close warning). */
     __commInCall?: boolean;
   }
 }
@@ -32,14 +46,29 @@ export function getDesktopApiUrl(): string {
   return cachedApiUrl || '';
 }
 
-export async function ensureDesktopConfig(): Promise<void> {
-  if (typeof window === 'undefined' || !window.electronAPI?.getConfig) return;
-  try {
-    const config = await window.electronAPI.getConfig();
-    cachedApiUrl = config.apiUrl?.trim() || null;
-  } catch {
-    cachedApiUrl = null;
+let configPromise: Promise<void> | null = null;
+
+/**
+ * Loads the API URL from the Electron main process once; every caller shares
+ * the same promise. The bundled desktop UI is served from app://teamtime and
+ * has no Next rewrite for /api, so a request sent before this resolves would
+ * hit the local scheme and 404.
+ */
+export function ensureDesktopConfig(): Promise<void> {
+  if (typeof window === 'undefined' || !window.electronAPI?.getConfig) {
+    return Promise.resolve();
   }
+  if (!configPromise) {
+    configPromise = window.electronAPI
+      .getConfig()
+      .then((config) => {
+        cachedApiUrl = config.apiUrl?.trim() || null;
+      })
+      .catch(() => {
+        cachedApiUrl = null;
+      });
+  }
+  return configPromise;
 }
 
 function adjustLocalhostForRemoteBrowser(urlStr: string): string {
@@ -104,7 +133,7 @@ export function resolveApiBaseUrl(): string {
 
 export function sendDesktopNotification(
   title: string,
-  options?: { body?: string; tag?: string },
+  options?: { body?: string; tag?: string; url?: string },
 ): void {
   if (!isElectronDesktop()) return;
   window.electronAPI?.sendNotification(title, options);
@@ -112,9 +141,16 @@ export function sendDesktopNotification(
 
 export function onDesktopForceEndCall(callback: () => void): () => void {
   if (!isElectronDesktop()) return () => {};
-  window.electronAPI?.onForceEndCall(callback);
-  return () => {
-    // ipcRenderer listeners are automatically cleaned up by contextIsolation;
-    // no manual off needed for one-way channels in this preload design.
-  };
+  const off = window.electronAPI?.onForceEndCall(callback);
+  return typeof off === 'function' ? off : () => {};
+}
+
+/** Routes pushed from the shell (deep links, notification clicks). */
+export function onDesktopNavigate(callback: (path: string) => void): () => void {
+  const off = window.electronAPI?.onNavigate?.(callback);
+  return typeof off === 'function' ? off : () => {};
+}
+
+export function setDesktopUnreadCount(count: number): void {
+  window.electronAPI?.setUnreadCount?.(count);
 }

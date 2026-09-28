@@ -27,6 +27,7 @@ import Portal from '../../components/Portal';
 import PasswordInput from '../../components/PasswordInput';
 import ProfileSettings from '../../components/ProfileSettings';
 import { version as WEB_APP_VERSION } from '../../../../package.json';
+import DesktopPreferences from '../../components/DesktopPreferences';
 import {
   CAPABILITY_KEYS,
   CAPABILITY_LABELS,
@@ -616,6 +617,12 @@ export default function SettingsPage() {
               <button onClick={loadSettings} className="font-semibold hover:text-red-900">Retry</button>
             </div>
           )}
+
+          {/* Renders only inside the desktop app. */}
+          <div className="mb-5 max-w-3xl empty:hidden">
+            <DesktopPreferences />
+          </div>
+
           {activeTab === 'users' && (
             <div className="mb-5">
               <div className="flex flex-wrap items-center gap-2">

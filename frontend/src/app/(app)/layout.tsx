@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import AppShell from '../components/AppShell';
 import { TOKEN_UPDATED_EVENT } from '../../services/api';
 import { navKeyAllowed, pathnameToNavKey } from '../../lib/permissions';
+import { ensureDesktopConfig } from '../../lib/desktopRuntime';
 
 function readStoredUser() {
   try {
@@ -19,6 +20,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [isReady, setIsReady] = useState(false);
+  // Desktop only: the API/socket URL comes from Electron. Children open the
+  // shared socket synchronously on mount, so they must not render before it
+  // is known. Resolves immediately in a normal browser.
+  const [desktopConfigReady, setDesktopConfigReady] = useState(false);
+
+  useEffect(() => {
+    void ensureDesktopConfig().then(() => setDesktopConfigReady(true));
+  }, []);
 
   useEffect(() => {
     const sync = () => {
@@ -36,7 +45,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = typeof window === 'undefined' ? null : localStorage.getItem('veloce_token');
     if (!token) {
-      router.replace(`/login?next=${encodeURIComponent(pathname || '/home')}`);
+      // Keep the query too, so a deep link such as /dms?conversation=<id>
+      // lands on that conversation after sign-in rather than the list.
+      const target = `${pathname || '/home'}${window.location.search}`;
+      router.replace(`/login?next=${encodeURIComponent(target)}`);
       return;
     }
 
@@ -49,7 +61,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     }
   }, [pathname, router]);
 
-  if (!isReady) {
+  if (!isReady || !desktopConfigReady) {
     return (
       <div className="flex h-screen min-h-screen items-center justify-center bg-slate-50 text-sm font-medium text-slate-500">
         Loading workspace...
