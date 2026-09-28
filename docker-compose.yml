@@ -57,7 +57,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - CORS_ORIGIN=${CORS_ORIGIN:-https://communication.impmeet.com}
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://communication.impmeet.com,app://teamtime}
       # JWT_SECRET / SMTP_* / CLOUDINARY_* come from env_file (backend/.env)
       - DATABASE_URL=${DATABASE_URL:-postgresql://teamtime:${PGPASSWORD:-teamtime}@postgres:5432/teamtime?schema=public}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
